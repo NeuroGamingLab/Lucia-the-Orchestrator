@@ -1,0 +1,161 @@
+#cloud-config
+# KrakenWhip — OpenClaw Pro Tier Cloud-Init
+# Bootstraps Docker + OpenClaw + Ollama + Qdrant on first boot
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg
+  - lsb-release
+  - jq
+  - parted
+  - xfsprogs
+
+write_files:
+  - path: /opt/krakenwhip/docker-compose.yml
+    permissions: "0644"
+    content: |
+      version: "3.8"
+      services:
+        openclaw:
+          image: ghcr.io/openclaw/openclaw:latest
+          container_name: krakenwhip-openclaw
+          restart: unless-stopped
+          ports:
+            - "${gateway_port}:18789"
+          volumes:
+            - openclaw_data:/home/node/.openclaw
+          environment:
+            - OLLAMA_HOST=http://ollama:11434
+            - QDRANT_URL=http://qdrant:6333
+%{ if anthropic_api_key != "" ~}
+            - ANTHROPIC_API_KEY=${anthropic_api_key}
+%{ endif ~}
+          depends_on:
+            ollama:
+              condition: service_started
+            qdrant:
+              condition: service_healthy
+          networks:
+            - krakenwhip
+
+        ollama:
+          image: ollama/ollama:latest
+          container_name: krakenwhip-ollama
+          restart: unless-stopped
+%{ if gpu_enabled ~}
+          deploy:
+            resources:
+              reservations:
+                devices:
+                  - driver: nvidia
+                    count: all
+                    capabilities: [gpu]
+%{ endif ~}
+          volumes:
+            - ollama_models:/root/.ollama
+            - /mnt/data/ollama:/mnt/data/ollama
+          networks:
+            - krakenwhip
+
+        qdrant:
+          image: qdrant/qdrant:latest
+          container_name: krakenwhip-qdrant
+          restart: unless-stopped
+          volumes:
+            - qdrant_data:/qdrant/storage
+          healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+            interval: 10s
+            timeout: 5s
+            retries: 3
+          networks:
+            - krakenwhip
+
+      volumes:
+        openclaw_data:
+        ollama_models:
+        qdrant_data:
+
+      networks:
+        krakenwhip:
+          driver: bridge
+
+  - path: /opt/krakenwhip/pull-models.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -e
+      echo "[krakenwhip] Waiting for Ollama to be ready..."
+      for i in $(seq 1 60); do
+        if curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then
+          echo "[krakenwhip] Ollama is ready."
+          break
+        fi
+        sleep 5
+      done
+%{ for model in models_to_pull ~}
+      echo "[krakenwhip] Pulling model: ${model}"
+      docker exec krakenwhip-ollama ollama pull ${model} || true
+%{ endfor ~}
+      echo "[krakenwhip] All models pulled."
+
+  - path: /opt/krakenwhip/setup.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -ex
+
+      echo "[krakenwhip] === Starting KrakenWhip setup ==="
+
+      # --- Format and mount data disk (lun0 = /dev/sdc on most Azure VMs) ---
+      DATA_DISK="/dev/sdc"
+      if [ -b "$DATA_DISK" ]; then
+        if ! blkid "$DATA_DISK" | grep -q xfs; then
+          echo "[krakenwhip] Formatting data disk..."
+          mkfs.xfs "$DATA_DISK"
+        fi
+        mkdir -p /mnt/data
+        mount "$DATA_DISK" /mnt/data || true
+        echo "$DATA_DISK /mnt/data xfs defaults,nofail 0 0" >> /etc/fstab
+        mkdir -p /mnt/data/ollama /mnt/data/qdrant
+      fi
+
+      # --- Install Docker ---
+      echo "[krakenwhip] Installing Docker..."
+      curl -fsSL https://get.docker.com | sh
+      systemctl enable docker
+      systemctl start docker
+
+%{ if gpu_enabled ~}
+      # --- Install NVIDIA drivers + container toolkit ---
+      echo "[krakenwhip] Installing NVIDIA drivers..."
+      apt-get install -y linux-modules-extra-$(uname -r) || true
+      curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
+        gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+      curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+        tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+      apt-get update
+      apt-get install -y nvidia-driver-535 nvidia-container-toolkit
+      nvidia-ctk runtime configure --runtime=docker
+      systemctl restart docker
+%{ endif ~}
+
+      # --- Start the stack ---
+      echo "[krakenwhip] Starting OpenClaw stack..."
+      cd /opt/krakenwhip
+      docker compose up -d
+
+      # --- Pull models in background ---
+      echo "[krakenwhip] Pulling models in background..."
+      nohup /opt/krakenwhip/pull-models.sh > /var/log/krakenwhip-models.log 2>&1 &
+
+      echo "[krakenwhip] === KrakenWhip setup complete ==="
+
+runcmd:
+  - /opt/krakenwhip/setup.sh

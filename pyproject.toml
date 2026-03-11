@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "krakenwhip"
+version = "0.1.0"
+description = "Deploy AI stacks with one command"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [
+    { name = "Dang Hoang", email = "" },
+]
+keywords = ["ai", "docker", "deploy", "ollama", "qdrant", "openclaw", "infrastructure"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "pyyaml>=6.0",
+    "jinja2>=3.1.0",
+    "httpx>=0.24.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+cloud = ["python-hcl2>=4.0.0"]
+dev = ["pytest>=7.0", "pytest-cov", "ruff", "mypy"]
+
+[project.scripts]
+krakenwhip = "krakenwhip.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/NeuroGamingLab/krakenwhip"
+Documentation = "https://github.com/NeuroGamingLab/krakenwhip#readme"
+Repository = "https://github.com/NeuroGamingLab/krakenwhip"
+Issues = "https://github.com/NeuroGamingLab/krakenwhip/issues"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+# Optional[] required in cli.py for Python 3.9 (Typer evaluates annotations at runtime)
+[tool.ruff.lint.per-file-ignores]
+"krakenwhip/cli.py" = ["UP045"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

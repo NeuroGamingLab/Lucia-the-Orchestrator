@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KrakenWhip — Deploy AI Stacks with One Command</title>
+  <meta name="description" content="Deploy production-ready AI stacks in seconds. One command. Local Docker or cloud Terraform. GPU support included.">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐙</text></svg>">
+</head>
+<body>
+  <!-- Nav -->
+  <nav class="nav">
+    <div class="container nav-inner">
+      <a href="#" class="logo">
+        <span class="logo-icon">🐙</span>
+        <span class="logo-text">KrakenWhip</span>
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#stacks">Stacks</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#install" class="btn btn-sm">Get Started</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container hero-inner">
+      <div class="hero-badge">Open Source CLI Tool</div>
+      <h1 class="hero-title">Deploy AI stacks<br><span class="gradient-text">with one command</span></h1>
+      <p class="hero-sub">Production-ready AI infrastructure in seconds.<br>Local Docker or cloud Terraform. GPU support included.</p>
+
+      <div class="terminal" id="terminal">
+        <div class="terminal-bar">
+          <span class="terminal-dot red"></span>
+          <span class="terminal-dot yellow"></span>
+          <span class="terminal-dot green"></span>
+          <span class="terminal-title">terminal</span>
+        </div>
+        <div class="terminal-body">
+          <div class="terminal-line">
+            <span class="terminal-prompt">$</span>
+            <span class="terminal-command" id="typed-command"></span>
+            <span class="terminal-cursor" id="cursor">▌</span>
+          </div>
+          <div class="terminal-output" id="terminal-output"></div>
+        </div>
+      </div>
+
+      <div class="hero-cta">
+        <a href="#install" class="btn btn-primary btn-lg">Install Now</a>
+        <a href="https://github.com/NeuroGamingLab/krakenwhip" class="btn btn-outline btn-lg" target="_blank" rel="noopener">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="features" id="features">
+    <div class="container">
+      <h2 class="section-title">Why KrakenWhip?</h2>
+      <p class="section-sub">Stop wrestling with Docker Compose files and Terraform configs.<br>Deploy complete AI stacks in one command.</p>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h3>One-Command Deploy</h3>
+          <p>No config files. No setup guides. Just <code>krakenwhip deploy</code> and you're running.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🎮</div>
+          <h3>GPU Support</h3>
+          <p>Automatic NVIDIA GPU detection and passthrough. Run LLMs at full speed on local hardware.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📦</div>
+          <h3>Multiple Stacks</h3>
+          <p>Curated AI stacks — from local LLM inference to full RAG pipelines. Pick one and ship.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">☁️</div>
+          <h3>Cloud Deploy</h3>
+          <p>Go from local Docker to cloud Terraform with one flag. Same stack, any scale.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔒</div>
+          <h3>Self-Hosted</h3>
+          <p>Your data stays yours. Run everything on your own hardware or your own cloud account.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🧩</div>
+          <h3>Extensible</h3>
+          <p>Build custom stacks or extend existing ones. KrakenWhip is open source and hackable.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Stacks -->
+  <section class="stacks" id="stacks">
+    <div class="container">
+      <h2 class="section-title">AI Stacks</h2>
+      <p class="section-sub">Pre-configured, production-tested AI infrastructure.<br>Deploy any stack with a single command.</p>
+
+      <div class="stack-featured">
+        <div class="stack-card stack-available">
+          <div class="stack-badge available">Available Now</div>
+          <div class="stack-header">
+            <span class="stack-icon">🐙</span>
+            <h3>OpenClaw</h3>
+          </div>
+          <p class="stack-desc">Full AI assistant platform with LLM inference, vector memory, and autonomous agent capabilities.</p>
+          <div class="stack-includes">
+            <h4>What's included:</h4>
+            <ul>
+              <li><span class="check">✓</span> Ollama — Local LLM inference</li>
+              <li><span class="check">✓</span> Qdrant — Vector database for memory</li>
+              <li><span class="check">✓</span> OpenClaw Agent — Autonomous AI assistant</li>
+              <li><span class="check">✓</span> Web UI — Control panel</li>
+              <li><span class="check">✓</span> GPU passthrough — Automatic detection</li>
+            </ul>
+          </div>
+          <div class="stack-command">
+            <code>krakenwhip deploy openclaw</code>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="coming-soon-title">Coming Soon</h3>
+      <div class="stacks-grid">
+        <div class="stack-card stack-soon">
+          <div class="stack-badge soon">Coming Soon</div>
+          <span class="stack-icon">🦙</span>
+          <h3>Ollama</h3>
+          <p>Standalone LLM inference server with API endpoint and model management.</p>
+        </div>
+        <div class="stack-card stack-soon">
+          <div class="stack-badge soon">Coming Soon</div>
+          <span class="stack-icon">🔍</span>
+          <h3>RAG</h3>
+          <p>Retrieval-augmented generation pipeline with vector store, embeddings, and API.</p>
+        </div>
+        <div class="stack-card stack-soon">
+          <div class="stack-badge soon">Coming Soon</div>
+          <span class="stack-icon">🔗</span>
+          <h3>LangChain</h3>
+          <p>LangChain + LangSmith agent toolkit with tracing, memory, and tool integrations.</p>
+        </div>
+        <div class="stack-card stack-soon">
+          <div class="stack-badge soon">Coming Soon</div>
+          <span class="stack-icon">🎨</span>
+          <h3>ComfyUI</h3>
+          <p>AI image generation with Stable Diffusion, node-based workflow editor, and GPU acceleration.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing -->
+  <section class="pricing" id="pricing">
+    <div class="container">
+      <h2 class="section-title">Simple Pricing</h2>
+      <p class="section-sub">Free for local development. Pay only when you need cloud.</p>
+
+      <div class="pricing-grid">
+        <div class="pricing-card">
+          <div class="pricing-header">
+            <h3>Free</h3>
+            <div class="pricing-amount">$0</div>
+            <p class="pricing-period">forever</p>
+          </div>
+          <div class="pricing-body">
+            <ul>
+              <li><span class="check">✓</span> Local Docker deployment</li>
+              <li><span class="check">✓</span> All available stacks</li>
+              <li><span class="check">✓</span> GPU passthrough</li>
+              <li><span class="check">✓</span> CLI tools</li>
+              <li><span class="check">✓</span> Community support</li>
+              <li class="muted"><span class="x">✗</span> Cloud Terraform deploy</li>
+              <li class="muted"><span class="x">✗</span> Multi-cloud support</li>
+            </ul>
+            <a href="#install" class="btn btn-outline btn-block">Get Started</a>
+          </div>
+        </div>
+
+        <div class="pricing-card pricing-featured">
+          <div class="pricing-popular">Most Popular</div>
+          <div class="pricing-header">
+            <h3>Pro</h3>
+            <div class="pricing-amount">$15<span class="pricing-mo">/mo</span></div>
+            <p class="pricing-period">or $29 one-time</p>
+          </div>
+          <div class="pricing-body">
+            <ul>
+              <li><span class="check">✓</span> Everything in Free</li>
+              <li><span class="check">✓</span> Cloud Terraform deploy</li>
+              <li><span class="check">✓</span> AWS, GCP, Azure support</li>
+              <li><span class="check">✓</span> Auto-scaling configs</li>
+              <li><span class="check">✓</span> SSL & domain setup</li>
+              <li><span class="check">✓</span> Priority support</li>
+              <li><span class="check">✓</span> Custom stack configs</li>
+            </ul>
+            <a href="#install" class="btn btn-primary btn-block">Get Pro</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Install -->
+  <section class="install" id="install">
+    <div class="container">
+      <h2 class="section-title">Get Started in 10 Seconds</h2>
+      <div class="install-steps">
+        <div class="install-step">
+          <div class="step-num">1</div>
+          <h3>Install</h3>
+          <div class="code-block">
+            <code>pip install krakenwhip</code>
+            <button class="copy-btn" data-copy="pip install krakenwhip" aria-label="Copy to clipboard">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="install-step">
+          <div class="step-num">2</div>
+          <h3>Deploy</h3>
+          <div class="code-block">
+            <code>krakenwhip deploy openclaw</code>
+            <button class="copy-btn" data-copy="krakenwhip deploy openclaw" aria-label="Copy to clipboard">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="install-step">
+          <div class="step-num">3</div>
+          <h3>Done</h3>
+          <p class="step-desc">Your AI stack is running. That's it.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <span class="logo-icon">🐙</span>
+        <span class="logo-text">KrakenWhip</span>
+        <p class="footer-tagline">Deploy AI stacks with one command.</p>
+      </div>
+      <div class="footer-links">
+        <div class="footer-col">
+          <h4>Product</h4>
+          <a href="#features">Features</a>
+          <a href="#stacks">Stacks</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#install">Install</a>
+        </div>
+        <div class="footer-col">
+          <h4>Resources</h4>
+          <a href="https://github.com/NeuroGamingLab/krakenwhip" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/NeuroGamingLab/krakenwhip/issues" target="_blank" rel="noopener">Issues</a>
+          <a href="https://github.com/NeuroGamingLab/krakenwhip#readme" target="_blank" rel="noopener">Docs</a>
+        </div>
+        <div class="footer-col">
+          <h4>Organization</h4>
+          <a href="https://github.com/NeuroGamingLab" target="_blank" rel="noopener">NeuroGamingLab</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>&copy; 2026 NeuroGamingLab. Open source under MIT License.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
