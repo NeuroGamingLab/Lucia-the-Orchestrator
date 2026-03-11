@@ -45,7 +45,7 @@ mypy krakenwhip/ --ignore-missing-imports
 
 ## Submitting Changes
 
-1. Fork the repo and create a feature branch
+1. Fork the [NeuroGamingLab/krakenwhip](https://github.com/NeuroGamingLab/krakenwhip) repo and create a feature branch
 2. Make your changes
 3. Ensure tests pass and linting is clean
-4. Open a pull request against `main`
+4. Open a pull request against [NeuroGamingLab/krakenwhip](https://github.com/NeuroGamingLab/krakenwhip) on the `main` branch

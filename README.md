@@ -62,10 +62,10 @@ docker compose up -d
 
 ### Available Now
 - `openclaw` — Full OpenClaw + Ollama + Qdrant
+- `ollama` — LocalHost Ollama with model management
+- `rag` — RAG pipeline (Qdrant + embeddings API)
 
 ### Coming Soon
-- `ollama` — Standalone Ollama with model management
-- `rag` — RAG pipeline (Qdrant + embeddings API)
 - `langchain` — LangChain + vector store + API
 - `comfyui` — ComfyUI + model cache
 
@@ -83,6 +83,18 @@ krakenwhip doctor                  # Diagnose common issues
 ```
 
 **Deploy options** (e.g. for `openclaw`): `--port` / `-p` (gateway port), `--ollama-port` (expose Ollama on host), `--dry-run` (render config only), `--gpu`, `--models llama3.1,mistral`, `--api-key` / `-k` (Anthropic), `--skip-setup` (skip interactive prompts).
+
+### Check Ollama and Qdrant
+
+Use the **stack name you deployed** (e.g. `openclaw` if you ran `krakenwhip deploy openclaw`). Status and logs only work for stacks that are already deployed.
+
+```bash
+# If you deployed OpenClaw (includes Ollama + Qdrant)
+krakenwhip status openclaw
+krakenwhip logs openclaw --service ollama
+krakenwhip logs openclaw --service qdrant
+
+```
 
 ## Cloud Providers (Pro)
 
