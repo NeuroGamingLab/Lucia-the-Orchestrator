@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "krakenwhip"
-version = "0.1.0"
-description = "Deploy AI stacks with one command"
+version = "0.1.1"
+description = "Deploy AI stacks with one command — OpenClaw, Ollama, and Qdrant, fully containerized. Install: pip install krakenwhip. Run: krakenwhip deploy openclaw; then docker exec -it krakenwhip-openclaw openclaw tui for the TUI. Default LLM: Anthropic (Claude) when ANTHROPIC_API_KEY is set; Ollama (Llama 3.2) as fallback."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
 authors = [
-    { name = "NeuroGamingLab", email = "" },
+    { name = "NeuroGamingLab", email = "noreply@neurogaminglab.org" },
 ]
 keywords = ["ai", "docker", "deploy", "ollama", "qdrant", "openclaw", "infrastructure"]
 classifiers = [
@@ -18,7 +18,6 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",

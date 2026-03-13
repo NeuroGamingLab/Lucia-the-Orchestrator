@@ -12,13 +12,39 @@
   "agents": {
     "defaults": {
       "model": {
-        "primary": "ollama/llama3.2"
+        "primary": "anthropic/claude-sonnet-4-5",
+        "fallbacks": ["ollama/llama3.2"]
       },
       "workspace": "/home/node/.openclaw/workspace"
     }
   },
   "models": {
     "providers": {
+      "anthropic": {
+        "baseUrl": "https://api.anthropic.com",
+        "apiKey": "${ANTHROPIC_API_KEY}",
+        "api": "anthropic-messages",
+        "models": [
+          {
+            "id": "claude-sonnet-4-5",
+            "name": "Claude Sonnet 4.5",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": { "input": 0.003, "output": 0.015, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 200000,
+            "maxTokens": 8192
+          },
+          {
+            "id": "claude-3-5-sonnet-20241022",
+            "name": "Claude 3.5 Sonnet",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": { "input": 0.003, "output": 0.015, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 200000,
+            "maxTokens": 8192
+          }
+        ]
+      },
       "ollama": {
         "baseUrl": "http://ollama:11434",
         "apiKey": "ollama-local",

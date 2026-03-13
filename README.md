@@ -1,14 +1,14 @@
 # 🐙 KrakenWhip
 
-**Deploy AI stacks with one command.**
+**Deploy AI stacks with one command — OpenClaw and more, containerized by KrakenWhip.**
 
-KrakenWhip takes the pain out of setting up AI infrastructure. One command gets you a production-ready stack — locally with Docker Compose, or in the cloud with Terraform.
+KrakenWhip takes the pain out of AI infrastructure: **one command** spins up OpenClaw (and Ollama, Qdrant) **fully containerized**—no host installs, no config archaeology. Run it locally with Docker Compose or ship it to the cloud with Terraform. Same stack, same containers, anywhere.
 
 ## Overview
 
 KrakenWhip is a Python CLI that deploys pre-built **AI stacks** so you can run OpenClaw, Ollama, Qdrant, and similar tools without wiring Docker and config by hand.
 
-- **Local:** Docker Compose stacks under `~/.krakenwhip/deployments/<stack>/`
+- **Local:** Docker Compose stacks under `~/.krakenwhip/deployments/<stack>/` — all services run in containers and are exposed on localhost (no host installs).
 - **Cloud (Pro):** Terraform-based deploys (Azure supported; AWS, GCP, DigitalOcean planned)
 
 **Tech stack:** Typer + Rich for the CLI, Jinja2 for templates, `docker compose` (with fallback to standalone `docker-compose`). Cloud: Terraform with Azure provider. Python 3.9+.
@@ -21,18 +21,34 @@ KrakenWhip is a Python CLI that deploys pre-built **AI stacks** so you can run O
 
 ## Quick Start
 
-```bash
-pip install krakenwhip
+1. **Install** KrakenWhip:
 
-# Deploy OpenClaw stack locally (free)
-krakenwhip deploy openclaw
-# Gateway: http://localhost:18789   Qdrant: http://localhost:6333
+   ```bash
+   pip install krakenwhip
+   ```
 
-# Deploy to Azure (pro)
-krakenwhip deploy openclaw --cloud azure
-```
+   Verify: `krakenwhip version` (or `python3 -m krakenwhip version` if the script is not on your PATH). If you see “command not found: krakenwhip”, either add your Python script directory to `PATH` (e.g. `~/Library/Python/3.9/bin` on macOS for a user install) or run all commands as `python3 -m krakenwhip <command>`.
 
-The OpenClaw stack uses **Ollama as the default model** (`ollama/llama3.2`). You can optionally provide an Anthropic API key during setup for Claude, or add it later to `~/.krakenwhip/deployments/openclaw/.env`.
+2. **Deploy** the OpenClaw stack (containers for OpenClaw, Ollama, Qdrant):
+
+   ```bash
+   krakenwhip deploy openclaw
+   # or: python3 -m krakenwhip deploy openclaw
+   ```
+
+   Gateway: **http://localhost:18789** · Qdrant: **http://localhost:6333**
+
+3. **Open the OpenClaw TUI** (interactive terminal UI):
+
+   ```bash
+   docker exec -it krakenwhip-openclaw openclaw tui
+   ```
+
+   Use the same container name you deployed (e.g. if you deployed as `my-stack`, the container is `krakenwhip-my-stack`).
+
+4. **Optional — Deploy to cloud (Pro):** `krakenwhip deploy openclaw --cloud azure`
+
+The OpenClaw stack uses **Anthropic (Claude)** as the default model when `ANTHROPIC_API_KEY` is set (prompted during setup or in `~/.krakenwhip/deployments/openclaw/.env`). **Ollama (Llama 3.2)** is configured as fallback when the key is missing or for local-only use.
 
 ## What You Get
 
@@ -40,8 +56,10 @@ The OpenClaw stack uses **Ollama as the default model** (`ollama/llama3.2`). You
 
 A complete AI assistant stack:
 - **OpenClaw** — personal AI agent framework (gateway on port **18789** by default)
-- **Ollama** — local LLM inference (Llama, Mistral, Qwen, etc.); **default model** is `ollama/llama3.2`
+- **Ollama** — local LLM inference (Llama, Mistral, Qwen, etc.); **default** is Anthropic (Claude) when `ANTHROPIC_API_KEY` is set, with Ollama as fallback
 - **Qdrant** — vector database for memory (API and dashboard on port **6333**)
+
+**Important:** OpenClaw, Ollama, and Qdrant all **run inside Docker containers**. Nothing is installed directly on your host. Container ports are mapped to **localhost**, so you use the stack at `http://localhost:18789` (gateway) and `http://localhost:6333` (Qdrant)—containers on the inside, localhost on the outside.
 
 All pre-configured, networked, and ready to go. Deployment files and secrets live in `~/.krakenwhip/deployments/openclaw/` (including `.env` and `config/`). To change ports or re-run compose, use the same directory:
 
@@ -50,6 +68,45 @@ cd ~/.krakenwhip/deployments/openclaw
 # Optional: edit docker-compose.yml or .env, then:
 docker compose up -d
 ```
+
+## ASCII Architecture Diagram
+
+OpenClaw stack deployed by KrakenWhip — all services run in containers; you access them via localhost.
+
+```
+                    ┌─────────────────────────────────────────────────────────┐
+                    │  Host (localhost)                                        │
+                    │                                                          │
+  krakenwhip        │   :18789 (gateway)        :6333 (Qdrant API/dashboard)   │
+  deploy openclaw   │         │                          │                     │
+        │           │         ▼                          ▼                     │
+        ▼           │  ┌──────────────┐            ┌──────────────┐          │
+  ┌─────────────┐   │  │   Browser    │            │   Browser     │          │
+  │ KrakenWhip  │   │  │   / Client  │            │   / Client   │          │
+  │    CLI      │   │  └──────┬───────┘            └──────┬───────┘          │
+  └──────┬──────┘   │         │                          │                     │
+         │          │         │                          │                     │
+         │          │  ┌──────┴──────────────────────────┴──────┐             │
+         │          │  │  Docker bridge network (krakenwhip)     │             │
+         │          │  │                                         │             │
+         └──────────┼──┼──► ┌─────────────────┐                  │             │
+                    │  │    │ krakenwhip-     │                  │             │
+                    │  │    │ openclaw        │◄─── :18789       │             │
+                    │  │    │ (gateway + UI)  │                  │             │
+                    │  │    └────────┬────────┘                  │             │
+                    │  │             │                           │             │
+                    │  │      ┌──────┴──────┐                    │             │
+                    │  │      ▼             ▼                    │             │
+                    │  │  ┌─────────────────┐  ┌─────────────────┐            │
+                    │  │  │ krakenwhip-     │  │ krakenwhip-      │◄──── :6333 │
+                    │  │  │ ollama (LLM)    │  │ qdrant (vectors) │            │
+                    │  │  └─────────────────┘  └─────────────────┘            │
+                    │  └─────────────────────────────────────────┘             │
+                    └─────────────────────────────────────────────────────────┘
+```
+
+- **KrakenWhip CLI** renders config and runs `docker compose up`; all services run **inside containers**.
+- **OpenClaw** talks to Ollama and Qdrant over the internal network; only the gateway (18789) and Qdrant (6333) are exposed on localhost.
 
 ## Pricing
 
@@ -84,6 +141,19 @@ krakenwhip doctor                  # Diagnose common issues
 
 **Deploy options** (e.g. for `openclaw`): `--port` / `-p` (gateway port), `--ollama-port` (expose Ollama on host), `--dry-run` (render config only), `--gpu`, `--models llama3.1,mistral`, `--api-key` / `-k` (Anthropic), `--skip-setup` (skip interactive prompts).
 
+### Teardown (destroy and uninstall)
+
+To remove the stack and the CLI:
+
+```bash
+krakenwhip destroy openclaw              # Stop containers and remove deployment files
+krakenwhip destroy openclaw --volumes    # Also remove data volumes (Qdrant, Ollama)
+pip uninstall krakenwhip                 # Uninstall the package
+rm -rf ~/.krakenwhip                     # Optional: remove config directory
+```
+
+Use `python3 -m krakenwhip destroy openclaw` if `krakenwhip` is not on your PATH.
+
 ### Check Ollama and Qdrant
 
 Use the **stack name you deployed** (e.g. `openclaw` if you ran `krakenwhip deploy openclaw`). Status and logs only work for stacks that are already deployed.
@@ -100,7 +170,7 @@ krakenwhip logs openclaw --service qdrant
 
 | Provider | Status |
 |----------|--------|
-| Azure | ✅ Available |
+| Azure | 🔜 Coming Soon |
 | AWS | 🔜 Coming Soon |
 | GCP | 🔜 Coming Soon |
 | DigitalOcean | 🔜 Coming Soon |
