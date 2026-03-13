@@ -33,3 +33,6 @@ build/
 # Env files that may contain secrets
 .env
 .env.local
+
+# Ignore detail/doc variants
+README-detail.md
