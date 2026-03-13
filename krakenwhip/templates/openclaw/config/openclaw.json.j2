@@ -15,7 +15,11 @@
         "primary": "openai/gpt-5.1",
         "fallbacks": ["anthropic/claude-sonnet-4-5", "ollama/llama3.2"]
       },
-      "workspace": "/home/node/.openclaw/workspace"
+      "workspace": "/home/node/.openclaw/workspace",
+      "memorySearch": {
+        "enabled": true,
+        "query": { "maxResults": 30, "minScore": 0.15 }
+      }
     }
   },
   "models": {
@@ -125,5 +129,13 @@
   },
   "tools": {
     "deny": ["tts"]
+  },
+  "skills": {
+    "entries": {
+      "memory-qdrant": {
+        "enabled": true,
+        "env": { "QDRANT_URL": "http://qdrant:6333" }
+      }
+    }
   }
 }

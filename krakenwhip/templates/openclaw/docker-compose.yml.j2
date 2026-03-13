@@ -20,7 +20,7 @@ services:
       - "{{ gateway_port | default('18789') }}:18789"
     volumes:
       - openclaw_data:/home/node/.openclaw
-      - ./config:/app/config:ro
+      - ./config:/app/config
     env_file:
       - .env
     environment:
@@ -35,6 +35,30 @@ services:
         condition: service_started
       qdrant:
         condition: service_healthy
+    networks:
+      - krakenwhip
+
+  # One-off: install memory-qdrant skill via GitHub tarball (Alpine has curl; no TTY needed)
+  openclaw-skill-qdrant:
+    image: alpine:3.19
+    user: root
+    volumes:
+      - openclaw_data:/data
+    command:
+      - sh
+      - -c
+      - |
+        apk add --no-cache curl
+        SKILLS_DIR=/data/skills
+        TARGET=$$SKILLS_DIR/memory-qdrant
+        if [ -d "$$TARGET" ]; then echo 'memory-qdrant already installed'; exit 0; fi
+        mkdir -p "$$SKILLS_DIR"
+        (curl -sLf https://github.com/zuiho-kai/openclaw-memory-qdrant/archive/refs/heads/master.tar.gz | tar xz -C /tmp) && \
+        mv /tmp/openclaw-memory-qdrant-master "$$TARGET" && chown -R 1000:1000 "$$SKILLS_DIR" && echo 'memory-qdrant installed' || exit 1
+    depends_on:
+      openclaw:
+        condition: service_started
+    restart: "no"
     networks:
       - krakenwhip
 

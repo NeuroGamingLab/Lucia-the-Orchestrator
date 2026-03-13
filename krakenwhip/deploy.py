@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +82,17 @@ def deploy_stack(name: str, template: dict[str, Any], options: dict[str, Any]) -
                 )
                 console.print("[dim]   Check status with: krakenwhip status openclaw[/dim]")
                 console.print("[dim]   View logs with:   krakenwhip logs openclaw[/dim]\n")
+
+            # Step 4b: Install memory-qdrant skill for OpenClaw (so Qdrant conversation storage works)
+            if name == "openclaw":
+                task4b = progress.add_task("Installing memory-qdrant skill...", total=None)
+                if _install_openclaw_memory_qdrant_skill():
+                    progress.update(task4b, description="✅ memory-qdrant skill installed")
+                else:
+                    progress.update(
+                        task4b,
+                        description="⚠️  memory-qdrant install skipped or failed (run manually if needed)",
+                    )
 
             # Step 5: Pre-pull models if requested
             models = options.get("models", [])
@@ -251,6 +263,42 @@ def _render_templates(name: str, deploy_path: Path, options: dict[str, Any]) -> 
             if config_tpl.exists():
                 t = env.get_template("config/openclaw.json.j2")
                 (config_dst / "openclaw.json").write_text(t.render(**context))
+
+
+def _install_openclaw_memory_qdrant_skill() -> bool:
+    """Install memory-qdrant skill via GitHub tarball (no TTY; playbooks CLI needs interactive)."""
+    container = "krakenwhip-openclaw"
+    skill_dir = "/home/node/.openclaw/skills/memory-qdrant"
+    # Single non-interactive install: curl tarball and extract into skills dir
+    install_script = (
+        f'test -d {skill_dir} && exit 0; '
+        'mkdir -p /home/node/.openclaw/skills && '
+        'curl -sLf https://github.com/zuiho-kai/openclaw-memory-qdrant/archive/refs/heads/master.tar.gz | tar xz -C /tmp && '
+        f'mv /tmp/openclaw-memory-qdrant-master {skill_dir} && exit 0 || exit 1'
+    )
+    time.sleep(5)
+    for attempt in range(3):
+        try:
+            result = subprocess.run(
+                ["docker", "exec", container, "sh", "-c", install_script],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode == 0:
+                return True
+            if result.stderr:
+                console.print(f"[dim]memory-qdrant install (attempt {attempt + 1}): {result.stderr.strip()[:200]}[/dim]")
+            if attempt < 2:
+                time.sleep(10)
+        except subprocess.TimeoutExpired:
+            console.print("[dim]memory-qdrant install timed out (will retry)[/dim]")
+            if attempt < 2:
+                time.sleep(10)
+        except (FileNotFoundError, OSError) as e:
+            console.print(f"[dim]memory-qdrant install: {e!s}[/dim]")
+            return False
+    return False
 
 
 def _docker_compose(path: Path, args: list[str]) -> subprocess.CompletedProcess:
