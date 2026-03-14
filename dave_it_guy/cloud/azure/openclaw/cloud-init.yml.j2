@@ -1,5 +1,5 @@
 #cloud-config
-# KrakenWhip — OpenClaw Pro Tier Cloud-Init
+# Dave IT Guy — OpenClaw Pro Tier Cloud-Init
 # Bootstraps Docker + OpenClaw + Ollama + Qdrant on first boot
 
 package_update: true
@@ -16,14 +16,14 @@ packages:
   - xfsprogs
 
 write_files:
-  - path: /opt/krakenwhip/docker-compose.yml
+  - path: /opt/dave-it-guy/docker-compose.yml
     permissions: "0644"
     content: |
       version: "3.8"
       services:
         openclaw:
           image: ghcr.io/openclaw/openclaw:latest
-          container_name: krakenwhip-openclaw
+          container_name: dave-it-guy-openclaw
           restart: unless-stopped
           ports:
             - "${gateway_port}:18789"
@@ -41,11 +41,11 @@ write_files:
             qdrant:
               condition: service_healthy
           networks:
-            - krakenwhip
+            - dave-it-guy
 
         ollama:
           image: ollama/ollama:latest
-          container_name: krakenwhip-ollama
+          container_name: dave-it-guy-ollama
           restart: unless-stopped
 %{ if gpu_enabled ~}
           deploy:
@@ -60,11 +60,11 @@ write_files:
             - ollama_models:/root/.ollama
             - /mnt/data/ollama:/mnt/data/ollama
           networks:
-            - krakenwhip
+            - dave-it-guy
 
         qdrant:
           image: qdrant/qdrant:latest
-          container_name: krakenwhip-qdrant
+          container_name: dave-it-guy-qdrant
           restart: unless-stopped
           volumes:
             - qdrant_data:/qdrant/storage
@@ -74,7 +74,7 @@ write_files:
             timeout: 5s
             retries: 3
           networks:
-            - krakenwhip
+            - dave-it-guy
 
       volumes:
         openclaw_data:
@@ -82,41 +82,41 @@ write_files:
         qdrant_data:
 
       networks:
-        krakenwhip:
+        dave-it-guy:
           driver: bridge
 
-  - path: /opt/krakenwhip/pull-models.sh
+  - path: /opt/dave-it-guy/pull-models.sh
     permissions: "0755"
     content: |
       #!/bin/bash
       set -e
-      echo "[krakenwhip] Waiting for Ollama to be ready..."
+      echo "[dave-it-guy] Waiting for Ollama to be ready..."
       for i in $(seq 1 60); do
         if curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then
-          echo "[krakenwhip] Ollama is ready."
+          echo "[dave-it-guy] Ollama is ready."
           break
         fi
         sleep 5
       done
 %{ for model in models_to_pull ~}
-      echo "[krakenwhip] Pulling model: ${model}"
-      docker exec krakenwhip-ollama ollama pull ${model} || true
+      echo "[dave-it-guy] Pulling model: ${model}"
+      docker exec dave-it-guy-ollama ollama pull ${model} || true
 %{ endfor ~}
-      echo "[krakenwhip] All models pulled."
+      echo "[dave-it-guy] All models pulled."
 
-  - path: /opt/krakenwhip/setup.sh
+  - path: /opt/dave-it-guy/setup.sh
     permissions: "0755"
     content: |
       #!/bin/bash
       set -ex
 
-      echo "[krakenwhip] === Starting KrakenWhip setup ==="
+      echo "[dave-it-guy] === Starting Dave IT Guy setup ==="
 
       # --- Format and mount data disk (lun0 = /dev/sdc on most Azure VMs) ---
       DATA_DISK="/dev/sdc"
       if [ -b "$DATA_DISK" ]; then
         if ! blkid "$DATA_DISK" | grep -q xfs; then
-          echo "[krakenwhip] Formatting data disk..."
+          echo "[dave-it-guy] Formatting data disk..."
           mkfs.xfs "$DATA_DISK"
         fi
         mkdir -p /mnt/data
@@ -126,14 +126,14 @@ write_files:
       fi
 
       # --- Install Docker ---
-      echo "[krakenwhip] Installing Docker..."
+      echo "[dave-it-guy] Installing Docker..."
       curl -fsSL https://get.docker.com | sh
       systemctl enable docker
       systemctl start docker
 
 %{ if gpu_enabled ~}
       # --- Install NVIDIA drivers + container toolkit ---
-      echo "[krakenwhip] Installing NVIDIA drivers..."
+      echo "[dave-it-guy] Installing NVIDIA drivers..."
       apt-get install -y linux-modules-extra-$(uname -r) || true
       curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
         gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
@@ -147,15 +147,15 @@ write_files:
 %{ endif ~}
 
       # --- Start the stack ---
-      echo "[krakenwhip] Starting OpenClaw stack..."
-      cd /opt/krakenwhip
+      echo "[dave-it-guy] Starting OpenClaw stack..."
+      cd /opt/dave-it-guy
       docker compose up -d
 
       # --- Pull models in background ---
-      echo "[krakenwhip] Pulling models in background..."
-      nohup /opt/krakenwhip/pull-models.sh > /var/log/krakenwhip-models.log 2>&1 &
+      echo "[dave-it-guy] Pulling models in background..."
+      nohup /opt/dave-it-guy/pull-models.sh > /var/log/dave-it-guy-models.log 2>&1 &
 
-      echo "[krakenwhip] === KrakenWhip setup complete ==="
+      echo "[dave-it-guy] === Dave IT Guy setup complete ==="
 
 runcmd:
-  - /opt/krakenwhip/setup.sh
+  - /opt/dave-it-guy/setup.sh

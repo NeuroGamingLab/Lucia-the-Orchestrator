@@ -1,4 +1,4 @@
-# KrakenWhip — Azure OpenClaw Pro Tier
+# Dave IT Guy — Azure OpenClaw Pro Tier
 
 Deploy the full **OpenClaw + Ollama + Qdrant** stack to an Azure VM with a single `terraform apply`.
 
@@ -21,7 +21,7 @@ Deploy the full **OpenClaw + Ollama + Qdrant** stack to an Azure VM with a singl
 
 ```bash
 # 1. Clone and navigate
-cd krakenwhip/cloud/azure/openclaw/
+cd dave_it_guy/cloud/azure/openclaw/
 
 # 2. Create a terraform.tfvars file
 cat > terraform.tfvars <<'EOF'
@@ -44,14 +44,14 @@ terraform apply
 | `region` | `eastus` | Azure region |
 | `vm_size` | `Standard_B2s` | VM SKU (see GPU section) |
 | `gpu_enabled` | `false` | Install NVIDIA drivers + container toolkit |
-| `admin_username` | `krakenwhip` | SSH username |
+| `admin_username` | `daveitguy` | SSH username |
 | `ssh_public_key` | *(required)* | Your SSH public key |
 | `allowed_ips` | `["0.0.0.0/0"]` | CIDRs allowed for SSH + gateway |
 | `models_to_pull` | `["llama3.2:3b"]` | Ollama models to download on boot |
 | `anthropic_api_key` | `""` | Anthropic API key for OpenClaw |
 | `gateway_port` | `18789` | OpenClaw gateway port |
 | `data_disk_size_gb` | `64` | Managed disk size |
-| `project_name` | `krakenwhip-openclaw` | Prefix for all Azure resources |
+| `project_name` | `dave-it-guy-openclaw` | Prefix for all Azure resources |
 
 ## GPU Support
 
@@ -75,7 +75,7 @@ After `terraform apply`, you'll see:
 
 ```
 public_ip    = "20.xx.xx.xx"
-ssh_command  = "ssh krakenwhip@20.xx.xx.xx"
+ssh_command  = "ssh daveitguy@20.xx.xx.xx"
 gateway_url  = "http://20.xx.xx.xx:18789"
 ```
 
@@ -83,13 +83,13 @@ gateway_url  = "http://20.xx.xx.xx:18789"
 
 ```bash
 # SSH into the VM
-ssh krakenwhip@$(terraform output -raw public_ip)
+ssh daveitguy@$(terraform output -raw public_ip)
 
 # Check stack status
-docker compose -f /opt/krakenwhip/docker-compose.yml ps
+docker compose -f /opt/dave-it-guy/docker-compose.yml ps
 
 # Watch model download progress
-tail -f /var/log/krakenwhip-models.log
+tail -f /var/log/dave-it-guy-models.log
 
 # Check cloud-init progress
 tail -f /var/log/cloud-init-output.log
@@ -109,7 +109,7 @@ tail -f /var/log/cloud-init-output.log
 terraform destroy
 
 # Or via Azure CLI
-az group delete -n krakenwhip-openclaw-rg --yes --no-wait
+az group delete -n dave-it-guy-openclaw-rg --yes --no-wait
 ```
 
 ## Cost Estimates

@@ -1,6 +1,6 @@
 """Tests for stack template registry."""
 
-from krakenwhip.templates import get_template, get_template_dir, list_templates
+from dave_it_guy.templates import get_template, get_template_dir, list_templates
 
 
 def test_list_templates_not_empty():

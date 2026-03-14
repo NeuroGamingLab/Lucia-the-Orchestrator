@@ -1,4 +1,4 @@
-"""KrakenWhip Doctor — diagnose common issues."""
+"""Dave IT Guy Doctor — diagnose common issues."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ console = Console()
 
 def run_doctor() -> None:
     """Run diagnostic checks."""
-    console.print("[bold]🩺 KrakenWhip Doctor[/bold]\n")
+    console.print("[bold]🩺 Dave IT Guy Doctor[/bold]\n")
 
     checks = [
         ("Docker installed", _check_docker),

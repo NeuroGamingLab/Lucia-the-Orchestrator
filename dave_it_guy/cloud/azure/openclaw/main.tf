@@ -1,6 +1,6 @@
-# KrakenWhip — Azure OpenClaw Pro Tier
+# Dave IT Guy — Azure OpenClaw Pro Tier
 # Deploys: OpenClaw + Ollama + Qdrant on a single Azure VM
-# https://github.com/NeuroGamingLab/krakenwhip
+# https://github.com/NeuroGamingLab/dave-it-guy
 
 terraform {
   required_version = ">= 1.5"
@@ -18,7 +18,7 @@ provider "azurerm" {
 
 locals {
   tags = {
-    project     = "krakenwhip"
+    project     = "dave-it-guy"
     stack       = "openclaw"
     tier        = "pro"
     managed_by  = "terraform"

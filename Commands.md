@@ -1,6 +1,6 @@
-# KrakenWhip & OpenClaw — Command Reference
+# Dave IT Guy & OpenClaw — Command Reference
 
-All commands to set up, launch, and manage KrakenWhip and the OpenClaw stack. Use the project's virtual environment (`.venv`) when working from the repo.
+All commands to set up, launch, and manage Dave IT Guy and the OpenClaw stack. Use the project's virtual environment (`.venv`) when working from the repo.
 
 ---
 
@@ -10,14 +10,14 @@ All commands to set up, launch, and manage KrakenWhip and the OpenClaw stack. Us
 
 ```bash
 # From the project root
-cd krakenwhip   # or your repo path
+cd dave-it-guy   # or your repo path
 
 python3 -m venv .venv
 source .venv/bin/activate   # Linux/macOS
 # .venv\Scripts\activate   # Windows
 ```
 
-### Install KrakenWhip (editable, with dev deps)
+### Install Dave IT Guy (editable, with dev deps)
 
 ```bash
 pip install -e ".[dev]"
@@ -26,8 +26,8 @@ pip install -e ".[dev]"
 ### Verify install
 
 ```bash
-krakenwhip version
-krakenwhip list
+dave-it-guy version
+dave-it-guy list
 ```
 
 ---
@@ -37,23 +37,23 @@ krakenwhip list
 ### Run doctor (Docker, disk, ports)
 
 ```bash
-krakenwhip doctor
+dave-it-guy doctor
 ```
 
 ### Dry-run (render config only, no containers)
 
 ```bash
-krakenwhip deploy openclaw --dry-run
+dave-it-guy deploy openclaw --dry-run
 ```
 
 ---
 
-## 3. Launch KrakenWhip OpenClaw stack
+## 3. Launch Dave IT Guy OpenClaw stack
 
 ### Deploy OpenClaw (interactive: prompts for API key, etc.)
 
 ```bash
-krakenwhip deploy openclaw
+dave-it-guy deploy openclaw
 ```
 
 - **Gateway:** http://localhost:18789  
@@ -65,32 +65,32 @@ krakenwhip deploy openclaw
 
 ```bash
 # Custom gateway port
-krakenwhip deploy openclaw --port 19000
+dave-it-guy deploy openclaw --port 19000
 
 # Expose Ollama on host (if 11434 is in use)
-krakenwhip deploy openclaw --ollama-port 11435
+dave-it-guy deploy openclaw --ollama-port 11435
 
 # GPU passthrough for Ollama
-krakenwhip deploy openclaw --gpu
+dave-it-guy deploy openclaw --gpu
 
 # Pre-pull models after start
-krakenwhip deploy openclaw --models llama3.1,mistral
+dave-it-guy deploy openclaw --models llama3.1,mistral
 
 # Non-interactive (use env or flag for API key)
 export ANTHROPIC_API_KEY=sk-ant-...
-krakenwhip deploy openclaw --skip-setup
+dave-it-guy deploy openclaw --skip-setup
 
 # Or pass API key on the command line
-krakenwhip deploy openclaw --api-key sk-ant-... --skip-setup
+dave-it-guy deploy openclaw --api-key sk-ant-... --skip-setup
 
 # Overwrite existing deployment
-krakenwhip deploy openclaw --force
+dave-it-guy deploy openclaw --force
 ```
 
 ### Combined example
 
 ```bash
-krakenwhip deploy openclaw --port 18789 --gpu --models llama3.2:3b
+dave-it-guy deploy openclaw --port 18789 --gpu --models llama3.2:3b
 ```
 
 ---
@@ -100,37 +100,37 @@ krakenwhip deploy openclaw --port 18789 --gpu --models llama3.2:3b
 ### Check status
 
 ```bash
-krakenwhip status              # all stacks
-krakenwhip status openclaw     # openclaw only
+dave-it-guy status              # all stacks
+dave-it-guy status openclaw     # openclaw only
 ```
 
 ### View logs
 
 ```bash
-krakenwhip logs openclaw
-krakenwhip logs openclaw --follow
-krakenwhip logs openclaw --tail 100 --service openclaw
+dave-it-guy logs openclaw
+dave-it-guy logs openclaw --follow
+dave-it-guy logs openclaw --tail 100 --service openclaw
 ```
 
 ### Stop stack (keeps data)
 
 ```bash
-krakenwhip stop openclaw
+dave-it-guy stop openclaw
 ```
 
 ### Start again (from deployment dir)
 
 ```bash
-cd ~/.krakenwhip/deployments/openclaw
+cd ~/.dave_it_guy/deployments/openclaw
 docker compose up -d
 ```
 
 ### Destroy stack (remove completely)
 
 ```bash
-krakenwhip destroy openclaw
-krakenwhip destroy openclaw --volumes   # also remove data volumes
-krakenwhip destroy openclaw --yes      # skip confirmation
+dave-it-guy destroy openclaw
+dave-it-guy destroy openclaw --volumes   # also remove data volumes
+dave-it-guy destroy openclaw --yes      # skip confirmation
 ```
 
 ---
@@ -140,36 +140,36 @@ krakenwhip destroy openclaw --yes      # skip confirmation
 ### Launch OpenClaw TUI (terminal UI) inside the container
 
 ```bash
-docker exec -it krakenwhip-openclaw openclaw tui
+docker exec -it dave-it-guy-openclaw openclaw tui
 ```
 
 ### Shell into OpenClaw container
 
 ```bash
-docker exec -it krakenwhip-openclaw sh
+docker exec -it dave-it-guy-openclaw sh
 ```
 
 ### Ollama (pull model manually)
 
 ```bash
-docker exec -it krakenwhip-ollama ollama pull llama3.2
-docker exec -it krakenwhip-ollama ollama list
+docker exec -it dave-it-guy-ollama ollama pull llama3.2
+docker exec -it dave-it-guy-ollama ollama list
 ```
 
 ---
 
-## 6. All KrakenWhip CLI commands (summary)
+## 6. All Dave IT Guy CLI commands (summary)
 
 | Command | Description |
 |---------|-------------|
-| `krakenwhip version` | Show version |
-| `krakenwhip list` | List available stacks |
-| `krakenwhip doctor` | Diagnose Docker, disk, ports |
-| `krakenwhip deploy openclaw [OPTIONS]` | Deploy OpenClaw stack |
-| `krakenwhip status [openclaw]` | Container status |
-| `krakenwhip logs openclaw [OPTIONS]` | View logs |
-| `krakenwhip stop openclaw` | Stop stack |
-| `krakenwhip destroy openclaw [--volumes] [--yes]` | Remove stack |
+| `dave-it-guy version` | Show version |
+| `dave-it-guy list` | List available stacks |
+| `dave-it-guy doctor` | Diagnose Docker, disk, ports |
+| `dave-it-guy deploy openclaw [OPTIONS]` | Deploy OpenClaw stack |
+| `dave-it-guy status [openclaw]` | Container status |
+| `dave-it-guy logs openclaw [OPTIONS]` | View logs |
+| `dave-it-guy stop openclaw` | Stop stack |
+| `dave-it-guy destroy openclaw [--volumes] [--yes]` | Remove stack |
 
 ---
 
@@ -178,16 +178,16 @@ docker exec -it krakenwhip-ollama ollama list
 If you don't activate `.venv`, use the venv binaries directly:
 
 ```bash
-.venv/bin/krakenwhip version
-.venv/bin/krakenwhip deploy openclaw
-.venv/bin/krakenwhip list
-.venv/bin/krakenwhip doctor
+.venv/bin/dave-it-guy version
+.venv/bin/dave-it-guy deploy openclaw
+.venv/bin/dave-it-guy list
+.venv/bin/dave-it-guy doctor
 ```
 
 ---
 
 ## 8. Deployment directory
 
-- **Path:** `~/.krakenwhip/deployments/openclaw/`
+- **Path:** `~/.dave_it_guy/deployments/openclaw/`
 - **Contents:** `docker-compose.yml`, `.env`, `config/` (e.g. `openclaw.json`)
 - To edit config or ports, change files there and run `docker compose up -d` in that directory.

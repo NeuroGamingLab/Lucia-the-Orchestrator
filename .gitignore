@@ -27,8 +27,8 @@ build/
 *.j2~
 *.j2.orig
 
-# KrakenWhip local data (includes deployments with .env and secrets)
-.krakenwhip/
+# Dave IT Guy local data (includes deployments with .env and secrets)
+.dave_it_guy/
 
 # Env files that may contain secrets
 .env

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Simple Qdrant READ/WRITE script for OpenClaw.
-Copied to /home/node/.openclaw/workspace by KrakenWhip deploy.
+Copied to /home/node/.openclaw/workspace by Dave IT Guy deploy.
 
 Commands:
   list                    – list collections
@@ -9,7 +9,7 @@ Commands:
   search <coll> <query> [limit]  – semantic search in a collection (limit default 10)
 
 Uses QDRANT_URL from env (e.g. http://qdrant:6333). Embeddings: sentence-transformers (all-MiniLM-L6-v2).
-KrakenWhip deploy installs qdrant-client and sentence-transformers in the container; if missing, run:
+Dave IT Guy deploy installs qdrant-client and sentence-transformers in the container; if missing, run:
   pip install qdrant-client sentence-transformers
 Outputs JSON to stdout.
 """

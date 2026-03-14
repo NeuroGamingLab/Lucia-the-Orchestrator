@@ -27,7 +27,7 @@ def run_search(query: str, max_results: int = 10):
     if DDGS is None:
         raise RuntimeError(
             "duckduckgo_search not installed; run 'pip install duckduckgo-search'"
-            " or 'pip install krakenwhip[search]'"
+            " or 'pip install dave-it-guy[search]'"
         )
 
     source = "text"

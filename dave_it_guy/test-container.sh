@@ -1,10 +1,10 @@
 #!/bin/bash
-# KrakenWhip Test Container — run this on your Mac
+# Dave IT Guy Test Container — run this on your Mac
 # Usage: bash test-container.sh
 
 set -e
 
-echo "🐙 Setting up KrakenWhip test container..."
+echo "Setting up Dave IT Guy test container..."
 
 docker run --rm -it \
   -v /var/run/docker.sock:/var/run/docker.sock \
@@ -28,13 +28,13 @@ docker --version
 docker compose version
 
 echo ""
-echo "📥 Installing KrakenWhip..."
-pip install --quiet git+https://github.com/NeuroGamingLab/krakenwhip.git
+echo "📥 Installing Dave IT Guy..."
+pip install --quiet git+https://github.com/NeuroGamingLab/dave-it-guy.git
 
 echo ""
-echo "✅ KrakenWhip installed!"
-krakenwhip version
+echo "✅ Dave IT Guy installed!"
+dave-it-guy version
 echo ""
 
-krakenwhip deploy openclaw --port 19000
+dave-it-guy deploy openclaw --port 19000
 '

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Simple DuckDuckGo-based web search script for OpenClaw.
-Copied to /home/node/.openclaw/workspace by KrakenWhip deploy.
+Copied to /home/node/.openclaw/workspace by Dave IT Guy deploy.
 
 Usage (inside container):
   python3 simple_search.py "your query" [max_results]
@@ -15,7 +15,7 @@ Outputs JSON to stdout:
     ]
   }
 
-KrakenWhip deploy installs duckduckgo-search in the container; if missing, run: pip install duckduckgo-search
+Dave IT Guy deploy installs duckduckgo-search in the container; if missing, run: pip install duckduckgo-search
 """
 
 import json

@@ -1,4 +1,4 @@
-# KrakenWhip — Azure OpenClaw Pro Tier Outputs
+# Dave IT Guy — Azure OpenClaw Pro Tier Outputs
 
 output "public_ip" {
   description = "Public IP address of the VM"

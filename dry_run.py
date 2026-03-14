@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""KrakenWhip Dry Run — render and preview templates without any dependencies.
+"""Dave IT Guy Dry Run — render and preview templates without any dependencies.
 
 Usage:
     python3 dry_run.py [stack] [--gpu] [--port PORT]
@@ -17,8 +17,8 @@ import re
 import sys
 from pathlib import Path
 
-TEMPLATE_DIR = Path(__file__).parent / "krakenwhip" / "templates"
-OUTPUT_DIR = Path.home() / ".krakenwhip" / "dry-run"
+TEMPLATE_DIR = Path(__file__).parent / "dave_it_guy" / "templates"
+OUTPUT_DIR = Path.home() / ".dave_it_guy" / "dry-run"
 
 # Template registry
 STACKS = {
@@ -165,7 +165,7 @@ def dry_run(stack_name: str, gpu: bool = False, port: int | None = None) -> None
     # Output
     print()
     print(f"{'='*60}")
-    print(f"🐙 KRAKENWHIP DRY RUN: {stack_name}")
+    print(f"Dave IT Guy DRY RUN: {stack_name}")
     print(f"{'='*60}")
     print(f"  📦 Stack:      {info['description']}")
     print(f"  🔧 Services:   {', '.join(info['services'])}")
@@ -199,7 +199,7 @@ def dry_run(stack_name: str, gpu: bool = False, port: int | None = None) -> None
 
     print()
     print(f"✅ Rendered files saved to: {out_dir}")
-    print(f"   To deploy for real: krakenwhip deploy {stack_name}" + (" --gpu" if gpu else ""))
+    print(f"   To deploy for real: dave-it-guy deploy {stack_name}" + (" --gpu" if gpu else ""))
     print()
 
 

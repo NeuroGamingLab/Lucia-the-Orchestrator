@@ -1,4 +1,4 @@
-"""KrakenWhip CLI — main entry point."""
+"""Dave IT Guy CLI — main entry point."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from krakenwhip import __version__
-from krakenwhip.deploy import deploy_stack, destroy_stack, stack_logs, stack_status, stop_stack
-from krakenwhip.doctor import run_doctor
-from krakenwhip.templates import get_template, list_templates
+from dave_it_guy import __version__
+from dave_it_guy.deploy import deploy_stack, destroy_stack, stack_logs, stack_status, stop_stack
+from dave_it_guy.doctor import run_doctor
+from dave_it_guy.templates import get_template, list_templates
 
 app = typer.Typer(
-    name="krakenwhip",
-    help="🐙 Deploy AI stacks with one command.",
+    name="dave-it-guy",
+    help="Deploy AI stacks with one command.",
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
@@ -61,7 +61,7 @@ def deploy(
     template = get_template(stack)
     if not template:
         console.print(f"[red]❌ Unknown stack: '{stack}'[/red]")
-        console.print("Run [bold]krakenwhip list[/bold] to see available stacks.")
+        console.print("Run [bold]dave-it-guy list[/bold] to see available stacks.")
         raise typer.Exit(1)
 
     # Interactive setup for required config
@@ -155,8 +155,8 @@ def doctor():
 
 @app.command()
 def version():
-    """Show KrakenWhip version."""
-    console.print(f"🐙 KrakenWhip v{__version__}")
+    """Show Dave IT Guy version."""
+    console.print(f"Dave IT Guy v{__version__}")
 
 
 def _interactive_setup(stack: str, api_key: str | None = None) -> dict[str, str]:
@@ -214,8 +214,8 @@ def _check_pro_license():
     # TODO: Implement license key verification
     console.print(Panel(
         "[yellow]☁️  Cloud deploys require a Pro license.[/yellow]\n\n"
-        "Get one at: [link=https://krakenwhip.dev/pro]https://krakenwhip.dev/pro[/link]\n\n"
-        "Already have a key? Run: [bold]krakenwhip auth login[/bold]",
+        "Get one at: [link=https://dave-it-guy.dev/pro]https://dave-it-guy.dev/pro[/link]\n\n"
+        "Already have a key? Run: [bold]dave-it-guy auth login[/bold]",
         title="Pro Feature",
     ))
     raise typer.Exit(1)

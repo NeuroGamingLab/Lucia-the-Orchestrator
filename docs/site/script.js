@@ -4,7 +4,7 @@
   const cursorEl = document.getElementById('cursor');
   const outputEl = document.getElementById('terminal-output');
 
-  const command = 'krakenwhip deploy openclaw';
+  const command = 'dave-it-guy deploy openclaw';
   const outputLines = [
     { text: '⠋ Pulling stack manifest...', cls: 'dim' },
     { text: '✓ Stack: openclaw (v1.2.0)', cls: 'success' },

@@ -1,4 +1,4 @@
-# 🐙 KrakenWhip
+# Dave IT Guy
 
 **Deploy AI stacks with one command.**
 
@@ -7,14 +7,14 @@ One command spins up OpenClaw with Ollama and Qdrant—fully containerized. No h
 ## Quick Start
 
 ```bash
-pip install krakenwhip
-krakenwhip deploy openclaw
+pip install dave-it-guy
+dave-it-guy deploy openclaw
 ```
 
 Then open the AI assistant:
 
 ```bash
-docker exec -it krakenwhip-openclaw openclaw tui
+docker exec -it dave-it-guy-openclaw openclaw tui
 ```
 
 **Gateway:** http://localhost:18789 · **Qdrant:** http://localhost:6333
@@ -32,11 +32,11 @@ Everything runs in Docker. Nothing on your host.
 ## Commands
 
 ```bash
-krakenwhip list              # Available stacks
-krakenwhip deploy openclaw   # Deploy
-krakenwhip status openclaw   # Status
-krakenwhip logs openclaw     # Logs
-krakenwhip doctor            # Diagnose issues
+dave-it-guy list              # Available stacks
+dave-it-guy deploy openclaw   # Deploy
+dave-it-guy status openclaw   # Status
+dave-it-guy logs openclaw     # Logs
+dave-it-guy doctor            # Diagnose issues
 ```
 
 ## Pricing

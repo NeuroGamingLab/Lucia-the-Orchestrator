@@ -1,5 +1,5 @@
-# KrakenWhip — Azure OpenClaw Pro Tier Variables
-# https://github.com/NeuroGamingLab/krakenwhip
+# Dave IT Guy — Azure OpenClaw Pro Tier Variables
+# https://github.com/NeuroGamingLab/dave-it-guy
 
 variable "region" {
   description = "Azure region for all resources"
@@ -22,7 +22,7 @@ variable "gpu_enabled" {
 variable "admin_username" {
   description = "SSH admin username for the VM"
   type        = string
-  default     = "krakenwhip"
+  default     = "daveitguy"
 }
 
 variable "ssh_public_key" {
@@ -64,5 +64,5 @@ variable "data_disk_size_gb" {
 variable "project_name" {
   description = "Project name used for resource naming"
   type        = string
-  default     = "krakenwhip-openclaw"
+  default     = "dave-it-guy-openclaw"
 }

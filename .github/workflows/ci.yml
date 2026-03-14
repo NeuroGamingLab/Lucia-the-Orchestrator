@@ -31,5 +31,5 @@ jobs:
         run: pytest -v
 
       - name: Type check
-        run: mypy krakenwhip/ --ignore-missing-imports
+        run: mypy dave_it_guy/ --ignore-missing-imports
         continue-on-error: true

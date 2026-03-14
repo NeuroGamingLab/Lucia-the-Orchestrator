@@ -5,16 +5,16 @@ alwaysApply: true
 
 # Use project virtual environment (venv)
 
-For the KrakenWhip project, **always use the project's virtual environment** when running Python, pip, or project CLI/tools.
+For the Dave IT Guy project, **always use the project's virtual environment** when running Python, pip, or project CLI/tools.
 
 - **Preferred:** Run commands with the venv's binaries so the active shell doesn't need to have activated the venv:
   - `./.venv/bin/python` or `.venv/bin/python3`
   - `./.venv/bin/pip`
-  - `./.venv/bin/krakenwhip`
+  - `./.venv/bin/dave-it-guy`
   - `./.venv/bin/pytest`
   - `./.venv/bin/ruff`
   - `./.venv/bin/mypy`
 
-- **Alternative:** If the user has activated the venv (`source .venv/bin/activate`), then `python`, `pip`, `krakenwhip`, `pytest`, etc. already use the venv.
+- **Alternative:** If the user has activated the venv (`source .venv/bin/activate`), then `python`, `pip`, `dave-it-guy`, `pytest`, etc. already use the venv.
 
-- **Do not** rely on the system or a different Python/pip when installing dependencies, running tests, or running `krakenwhip` in this repo. Use `.venv` so the project stays isolated and reproducible.
+- **Do not** rely on the system or a different Python/pip when installing dependencies, running tests, or running `dave-it-guy` in this repo. Use `.venv` so the project stays isolated and reproducible.

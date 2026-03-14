@@ -4,7 +4,7 @@
 
 ### Scope reviewed
 
-- **simple_search.py** (workspace, `krakenwhip/simple_search.py`, `scripts/simple_search.py`)
+- **simple_search.py** (workspace, `dave_it_guy/simple_search.py`, `scripts/simple_search.py`)
 - **simple_qdrant.py** (template workspace)
 - **deploy.py** (template render, .env write, docker exec, model pull)
 - **CLI** (stack name, options → deploy)
@@ -31,7 +31,7 @@
 ### Recommendations
 
 - Keep dependencies (e.g. `duckduckgo-search`, `qdrant-client`, `sentence-transformers`) updated for security fixes.
-- API keys and tokens are written to `~/.krakenwhip/deployments/<stack>/.env`; ensure that directory has appropriate permissions and is not in shared or version-controlled paths.
+- API keys and tokens are written to `~/.dave_it_guy/deployments/<stack>/.env`; ensure that directory has appropriate permissions and is not in shared or version-controlled paths.
 - For production, use a gateway token (OpenClaw) and restrict network exposure of the stack.
 
 ### Reporting vulnerabilities

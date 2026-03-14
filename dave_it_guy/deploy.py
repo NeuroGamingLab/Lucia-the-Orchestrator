@@ -15,11 +15,11 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.syntax import Syntax
 
-from krakenwhip.templates import get_template_dir
+from dave_it_guy.templates import get_template_dir
 
 console = Console()
 
-DEPLOY_DIR = Path.home() / ".krakenwhip" / "deployments"
+DEPLOY_DIR = Path.home() / ".dave_it_guy" / "deployments"
 
 
 def deploy_stack(name: str, template: dict[str, Any], options: dict[str, Any]) -> None:
@@ -31,12 +31,12 @@ def deploy_stack(name: str, template: dict[str, Any], options: dict[str, Any]) -
         console.print(f"[yellow]⚠️  Stack '{name}' already deployed at {deploy_path}[/yellow]")
         console.print(
             "Use [bold]--force[/bold] to overwrite, or "
-            "[bold]krakenwhip destroy {name}[/bold] first."
+            "[bold]dave-it-guy destroy {name}[/bold] first."
         )
         return
 
-    mode_label = "DRY RUN" if dry_run else "KrakenWhip"
-    console.print(Panel(f"[bold cyan]🐙 Deploying stack: {name}[/bold cyan]", subtitle=mode_label))
+    mode_label = "DRY RUN" if dry_run else "Dave IT Guy"
+    console.print(Panel(f"[bold cyan]Deploying stack: {name}[/bold cyan]", subtitle=mode_label))
 
     with Progress(
         SpinnerColumn(),
@@ -81,8 +81,8 @@ def deploy_stack(name: str, template: dict[str, Any], options: dict[str, Any]) -
                 console.print(
                     "\n[yellow]⚠️  Some services may need a moment to become healthy.[/yellow]"
                 )
-                console.print("[dim]   Check status with: krakenwhip status openclaw[/dim]")
-                console.print("[dim]   View logs with:   krakenwhip logs openclaw[/dim]\n")
+                console.print("[dim]   Check status with: dave-it-guy status openclaw[/dim]")
+                console.print("[dim]   View logs with:   dave-it-guy logs openclaw[/dim]\n")
 
             # Step 4b: Install memory-qdrant skill for OpenClaw (so Qdrant conversation storage works)
             if name == "openclaw":
@@ -133,7 +133,7 @@ def deploy_stack(name: str, template: dict[str, Any], options: dict[str, Any]) -
             f"  🖥️  GPU enabled:      {'Yes' if options.get('gpu') else 'No'}\n"
             f"  📦 Services:         {', '.join(template.get('services', []))}\n\n"
             f"  [dim]To deploy for real, run:[/dim]\n"
-            f"  [bold]krakenwhip deploy {name} --force[/bold]",
+            f"  [bold]dave-it-guy deploy {name} --force[/bold]",
             title="🏁 Dry Run Summary",
             border_style="green",
         ))
@@ -142,10 +142,10 @@ def deploy_stack(name: str, template: dict[str, Any], options: dict[str, Any]) -
             f"[bold green]✅ Stack '{name}' is running![/bold green]\n\n"
             f"  📍 Gateway:  http://localhost:{port}\n"
             f"  📁 Data:     {deploy_path}\n"
-            f"  📋 Logs:     [dim]krakenwhip logs {name}[/dim]\n"
-            f"  🛑 Stop:     [dim]krakenwhip stop {name}[/dim]\n"
-            f"  🗑️  Destroy:  [dim]krakenwhip destroy {name}[/dim]",
-            title="🐙 Deployed",
+            f"  📋 Logs:     [dim]dave-it-guy logs {name}[/dim]\n"
+            f"  🛑 Stop:     [dim]dave-it-guy stop {name}[/dim]\n"
+            f"  🗑️  Destroy:  [dim]dave-it-guy destroy {name}[/dim]",
+            title="Deployed",
             border_style="green",
         ))
 
@@ -190,7 +190,7 @@ def stack_status(name: str | None = None) -> None:
     else:
         if not DEPLOY_DIR.exists():
             console.print(
-                "[dim]No stacks deployed yet. Run [bold]krakenwhip deploy <stack>[/bold] "
+                "[dim]No stacks deployed yet. Run [bold]dave-it-guy deploy <stack>[/bold] "
                 "to get started.[/dim]"
             )
             return
@@ -239,7 +239,7 @@ def _render_templates(name: str, deploy_path: Path, options: dict[str, Any]) -> 
 
     # Write .env file with secrets (not baked into compose)
     if env_vars:
-        env_lines = ["# KrakenWhip — Generated environment config", ""]
+        env_lines = ["# Dave IT Guy — Generated environment config", ""]
         for key, value in env_vars.items():
             # Security: prevent injection of extra env lines via newlines in key/value
             k = str(key).replace("\n", "").replace("\r", "").strip()
@@ -280,7 +280,7 @@ def _render_templates(name: str, deploy_path: Path, options: dict[str, Any]) -> 
 
 def _install_openclaw_memory_qdrant_skill() -> bool:
     """Install memory-qdrant skill via GitHub tarball (no TTY; playbooks CLI needs interactive)."""
-    container = "krakenwhip-openclaw"
+    container = "dave-it-guy-openclaw"
     skill_dir = "/home/node/.openclaw/skills/memory-qdrant"
     # Single non-interactive install: curl tarball and extract into skills dir
     install_script = (
@@ -364,6 +364,6 @@ def _pull_models(models: list[str]) -> None:
             continue
         console.print(f"  📥 Pulling {model}...")
         subprocess.run(
-            ["docker", "exec", "krakenwhip-ollama", "ollama", "pull", model],
+            ["docker", "exec", "dave-it-guy-ollama", "ollama", "pull", model],
             check=True,
         )
