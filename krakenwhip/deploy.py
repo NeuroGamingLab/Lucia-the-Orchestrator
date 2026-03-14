@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import time
@@ -93,7 +94,6 @@ def deploy_stack(name: str, template: dict[str, Any], options: dict[str, Any]) -
                         task4b,
                         description="⚠️  memory-qdrant install skipped or failed (run manually if needed)",
                     )
-
             # Step 5: Pre-pull models if requested
             models = options.get("models", [])
             if models:
@@ -241,7 +241,11 @@ def _render_templates(name: str, deploy_path: Path, options: dict[str, Any]) -> 
     if env_vars:
         env_lines = ["# KrakenWhip — Generated environment config", ""]
         for key, value in env_vars.items():
-            env_lines.append(f"{key}={value}")
+            # Security: prevent injection of extra env lines via newlines in key/value
+            k = str(key).replace("\n", "").replace("\r", "").strip()
+            v = str(value).replace("\n", " ").replace("\r", " ").strip()
+            if k and "=" not in k:
+                env_lines.append(f"{k}={v}")
         env_lines.append("")
         (deploy_path / ".env").write_text("\n".join(env_lines))
 
@@ -263,6 +267,15 @@ def _render_templates(name: str, deploy_path: Path, options: dict[str, Any]) -> 
             if config_tpl.exists():
                 t = env.get_template("config/openclaw.json.j2")
                 (config_dst / "openclaw.json").write_text(t.render(**context))
+
+    # Copy workspace directory for openclaw (e.g. simple_search.py for web search)
+    if name == "openclaw":
+        workspace_src = template_dir / "workspace"
+        workspace_dst = deploy_path / "workspace"
+        if workspace_src.exists():
+            if workspace_dst.exists():
+                shutil.rmtree(workspace_dst)
+            shutil.copytree(workspace_src, workspace_dst)
 
 
 def _install_openclaw_memory_qdrant_skill() -> bool:
@@ -342,8 +355,13 @@ def _docker_compose(path: Path, args: list[str]) -> subprocess.CompletedProcess:
 
 
 def _pull_models(models: list[str]) -> None:
-    """Pre-pull Ollama models."""
+    """Pre-pull Ollama models. Model names are sanitized to safe chars (no shell injection)."""
+    safe_model_re = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$")
     for model in models:
+        model = (model or "").strip()
+        if not model or not safe_model_re.match(model):
+            console.print(f"  [dim]Skipping invalid model name: {model!r}[/dim]")
+            continue
         console.print(f"  📥 Pulling {model}...")
         subprocess.run(
             ["docker", "exec", "krakenwhip-ollama", "ollama", "pull", model],

@@ -12,6 +12,27 @@ services:
     user: root
     restart: "no"
 
+  # One-off: install Python deps (duckduckgo-search, qdrant-client, sentence-transformers) into volume; OpenClaw image has no pip
+  openclaw-pip-deps:
+    image: python:3.11-slim
+    user: root
+    volumes:
+      - openclaw_data:/data
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /data/site-packages
+        pip install --target=/data/site-packages --no-cache-dir duckduckgo-search qdrant-client sentence-transformers
+        chown -R 1000:1000 /data/site-packages
+        echo "workspace deps installed (duckduckgo-search, qdrant-client, sentence-transformers)"
+    restart: "no"
+    depends_on:
+      openclaw-init:
+        condition: service_completed_successfully
+    networks:
+      - krakenwhip
+
   openclaw:
     image: ghcr.io/openclaw/openclaw:latest
     container_name: krakenwhip-openclaw
@@ -20,6 +41,7 @@ services:
       - "{{ gateway_port | default('18789') }}:18789"
     volumes:
       - openclaw_data:/home/node/.openclaw
+      - ./workspace:/home/node/.openclaw/workspace
       - ./config:/app/config
     env_file:
       - .env
@@ -28,8 +50,11 @@ services:
       - OPENCLAW_CONFIG_PATH=/app/config/openclaw.json
       - OLLAMA_HOST=http://ollama:11434
       - QDRANT_URL=http://qdrant:6333
+      - PYTHONPATH=/home/node/.openclaw/site-packages
     depends_on:
       openclaw-init:
+        condition: service_completed_successfully
+      openclaw-pip-deps:
         condition: service_completed_successfully
       ollama:
         condition: service_started

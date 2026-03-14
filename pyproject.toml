@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "krakenwhip"
-version = "0.1.1"
+version = "0.1.2"
 description = "Deploy AI stacks with one command — OpenClaw, Ollama, and Qdrant, fully containerized. Install: pip install krakenwhip. Run: krakenwhip deploy openclaw; then docker exec -it krakenwhip-openclaw openclaw tui for the TUI. Default LLM: Anthropic (Claude) when ANTHROPIC_API_KEY is set; Ollama (Llama 3.2) as fallback."
 readme = "README.md"
 license = "MIT"
@@ -12,7 +12,7 @@ requires-python = ">=3.9"
 authors = [
     { name = "NeuroGamingLab", email = "noreply@neurogaminglab.org" },
 ]
-keywords = ["ai", "docker", "deploy", "ollama", "qdrant", "openclaw", "infrastructure"]
+keywords = ["ai", "docker", "deploy", "ollama", "qdrant", "openclaw", "infrastructure", "search"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -37,9 +37,11 @@ dependencies = [
 [project.optional-dependencies]
 cloud = ["python-hcl2>=4.0.0"]
 dev = ["pytest>=7.0", "pytest-cov", "ruff", "mypy"]
+search = ["duckduckgo-search>=6.0.0"]
 
 [project.scripts]
 krakenwhip = "krakenwhip.cli:app"
+simple-search = "krakenwhip.simple_search:main"
 
 [project.urls]
 Homepage = "https://github.com/NeuroGamingLab/krakenwhip"
