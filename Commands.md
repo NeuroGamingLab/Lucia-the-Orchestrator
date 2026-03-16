@@ -57,7 +57,7 @@ dave-it-guy deploy openclaw
 ```
 
 - **Gateway:** http://localhost:18789  
-- **Qdrant:** http://localhost:6333  
+- **Qdrant:** http://localhost:6333/  
 
 ------------------------------------------------
 

@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dave-it-guy"
-version = "0.2.0"
+version = "0.2.1"
 description = "Dave IT Guy — Deploy AI stacks with one command. OpenClaw, Ollama, Qdrant—fully containerized. Run locally or ship to the cloud. Same stack, anywhere."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
 authors = [
-    { name = "NeuroGamingLab", email = "noreply@neurogaminglab.org" },
+    { name = "NeuroGamingLab", email = "NeuroGamingLab@gmail.com" },
 ]
 keywords = ["ai", "docker", "deploy", "ollama", "qdrant", "openclaw", "infrastructure", "search"]
 classifiers = [
@@ -32,6 +32,8 @@ dependencies = [
     "jinja2>=3.1.0",
     "httpx>=0.24.0",
     "python-dotenv>=1.0.0",
+    "qdrant-client>=1.7.0",
+    "sentence-transformers>=2.2.0",
 ]
 
 [project.optional-dependencies]

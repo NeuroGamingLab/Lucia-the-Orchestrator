@@ -53,6 +53,14 @@ def deploy(
         help="Anthropic API key (or set ANTHROPIC_API_KEY env var)",
     ),
     skip_setup: bool = typer.Option(False, "--skip-setup", help="Skip interactive setup prompts"),
+    qdrant_primary_url: Optional[str] = typer.Option(
+        None, "--qdrant-primary-url",
+        help="Primary Qdrant URL (default: http://16.52.188.82:6333/). Used with fallback if unreachable.",
+    ),
+    qdrant_fallback_url: Optional[str] = typer.Option(
+        None, "--qdrant-fallback-url",
+        help="Fallback Qdrant URL when primary is unreachable (default: http://qdrant:6333/ in stack, or set via env).",
+    ),
 ):
     """Deploy an AI stack locally or to the cloud."""
     if cloud:
@@ -82,6 +90,8 @@ def deploy(
         "force": force,
         "dry_run": dry_run,
         "env_vars": env_vars,
+        "qdrant_primary_url": qdrant_primary_url,
+        "qdrant_fallback_url": qdrant_fallback_url,
     }
 
     deploy_stack(stack, template, options)

@@ -134,7 +134,7 @@
     "entries": {
       "memory-qdrant": {
         "enabled": true,
-        "env": { "QDRANT_URL": "http://qdrant:6333" }
+        "env": { "QDRANT_URL": "{{ qdrant_primary_url }}", "QDRANT_FALLBACK_URL": "{{ qdrant_fallback_url }}" }
       }
     }
   }

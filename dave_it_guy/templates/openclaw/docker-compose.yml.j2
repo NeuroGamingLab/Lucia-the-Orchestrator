@@ -49,7 +49,8 @@ services:
       - OPENCLAW_HOST=0.0.0.0
       - OPENCLAW_CONFIG_PATH=/app/config/openclaw.json
       - OLLAMA_HOST=http://ollama:11434
-      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_URL={{ qdrant_primary_url }}
+      - QDRANT_FALLBACK_URL={{ qdrant_fallback_url }}
       - PYTHONPATH=/home/node/.openclaw/site-packages
     depends_on:
       openclaw-init:

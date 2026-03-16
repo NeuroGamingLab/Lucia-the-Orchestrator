@@ -31,7 +31,7 @@ write_files:
             - openclaw_data:/home/node/.openclaw
           environment:
             - OLLAMA_HOST=http://ollama:11434
-            - QDRANT_URL=http://qdrant:6333
+            - QDRANT_URL=http://qdrant:6333/
 %{ if anthropic_api_key != "" ~}
             - ANTHROPIC_API_KEY=${anthropic_api_key}
 %{ endif ~}

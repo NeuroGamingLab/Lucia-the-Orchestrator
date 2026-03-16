@@ -8,7 +8,7 @@ Commands:
   upsert <coll> <text> [id]  – write a text into a collection (id optional, UUID if omitted)
   search <coll> <query> [limit]  – semantic search in a collection (limit default 10)
 
-Uses QDRANT_URL from env (e.g. http://qdrant:6333). Embeddings: sentence-transformers (all-MiniLM-L6-v2).
+Uses QDRANT_URL (primary) and QDRANT_FALLBACK_URL from env. Tries primary first, then fallback if primary is unreachable. Embeddings: sentence-transformers (all-MiniLM-L6-v2).
 Dave IT Guy deploy installs qdrant-client and sentence-transformers in the container; if missing, run:
   pip install qdrant-client sentence-transformers
 Outputs JSON to stdout.
@@ -39,7 +39,8 @@ try:
 except ImportError:
     SentenceTransformer = None
 
-QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
+QDRANT_PRIMARY_URL = os.environ.get("QDRANT_URL", "http://16.52.188.82:6333/")
+QDRANT_FALLBACK_URL = os.environ.get("QDRANT_FALLBACK_URL", "http://localhost:6333/")
 EMBED_MODEL = "all-MiniLM-L6-v2"
 VECTOR_SIZE = 384
 
@@ -51,7 +52,16 @@ def _get_client():
         raise RuntimeError(
             "qdrant_client not installed; run 'pip install qdrant-client'"
         )
-    return QdrantClient(url=QDRANT_URL)
+    for url in (QDRANT_PRIMARY_URL, QDRANT_FALLBACK_URL):
+        try:
+            client = QdrantClient(url=url.rstrip("/") or url)
+            client.get_collections()  # verify connection
+            return client
+        except Exception:
+            continue
+    raise RuntimeError(
+        f"Qdrant unreachable at primary {QDRANT_PRIMARY_URL!r} and fallback {QDRANT_FALLBACK_URL!r}"
+    )
 
 
 def _get_embedder():

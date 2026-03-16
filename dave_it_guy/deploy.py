@@ -230,6 +230,8 @@ def _render_templates(name: str, deploy_path: Path, options: dict[str, Any]) -> 
         "ollama_port": options.get("ollama_port"),
         "gpu": options.get("gpu", False),
         "env_vars": env_vars,
+        "qdrant_primary_url": options.get("qdrant_primary_url") or "http://16.52.188.82:6333/",
+        "qdrant_fallback_url": options.get("qdrant_fallback_url") or "http://qdrant:6333/",
     }
 
     # Render docker-compose
