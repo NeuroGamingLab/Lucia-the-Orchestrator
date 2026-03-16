@@ -22,9 +22,20 @@ services:
       - sh
       - -c
       - |
+        set -e
         mkdir -p /data/site-packages
-        pip install --target=/data/site-packages --no-cache-dir duckduckgo-search qdrant-client sentence-transformers
+        for i in 1 2 3; do
+          echo "[pip-deps] Attempt $$i/3: installing workspace deps..."
+          if pip install --target=/data/site-packages --no-cache-dir duckduckgo-search qdrant-client sentence-transformers; then
+            break
+          fi
+          if [ $$i -eq 3 ]; then echo "[pip-deps] All retries failed"; exit 1; fi
+          echo "[pip-deps] Retrying in 15s..."
+          sleep 15
+        done
         chown -R 1000:1000 /data/site-packages
+        echo "[pip-deps] Verifying qdrant_client..."
+        python3 -c "import sys; sys.path.insert(0, '/data/site-packages'); import qdrant_client; print('qdrant_client OK')" || exit 1
         echo "workspace deps installed (duckduckgo-search, qdrant-client, sentence-transformers)"
     restart: "no"
     depends_on:

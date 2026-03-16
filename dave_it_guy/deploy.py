@@ -84,6 +84,17 @@ def deploy_stack(name: str, template: dict[str, Any], options: dict[str, Any]) -
                 console.print("[dim]   Check status with: dave-it-guy status openclaw[/dim]")
                 console.print("[dim]   View logs with:   dave-it-guy logs openclaw[/dim]\n")
 
+            # Step 4a (openclaw only): Ensure openclaw container is actually running before skill install
+            if name == "openclaw":
+                task4a = progress.add_task("Ensuring OpenClaw is running...", total=None)
+                if _ensure_openclaw_running(deploy_path):
+                    progress.update(task4a, description="✅ OpenClaw container running")
+                else:
+                    progress.update(
+                        task4a,
+                        description="⚠️  OpenClaw may still be starting (check: dave-it-guy status openclaw)",
+                    )
+
             # Step 4b: Install memory-qdrant skill for OpenClaw (so Qdrant conversation storage works)
             if name == "openclaw":
                 task4b = progress.add_task("Installing memory-qdrant skill...", total=None)
@@ -278,6 +289,38 @@ def _render_templates(name: str, deploy_path: Path, options: dict[str, Any]) -> 
             if workspace_dst.exists():
                 shutil.rmtree(workspace_dst)
             shutil.copytree(workspace_src, workspace_dst)
+
+
+def _ensure_openclaw_running(deploy_path: Path) -> bool:
+    """Poll until openclaw container is running; optionally start it once. Returns True if running."""
+    container = "dave-it-guy-openclaw"
+    poll_interval = 3
+    first_wait = 90
+    second_wait = 30
+
+    def _is_running() -> bool:
+        r = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Running}}", container],
+            capture_output=True,
+            text=True,
+        )
+        return r.returncode == 0 and r.stdout.strip().lower() == "true"
+
+    for _ in range(0, first_wait, poll_interval):
+        if _is_running():
+            return True
+        time.sleep(poll_interval)
+
+    # One attempt to start the service (e.g. if it was Created but not started)
+    try:
+        _docker_compose(deploy_path, ["start", "openclaw"])
+    except subprocess.CalledProcessError:
+        pass
+    for _ in range(0, second_wait, poll_interval):
+        if _is_running():
+            return True
+        time.sleep(poll_interval)
+    return False
 
 
 def _install_openclaw_memory_qdrant_skill() -> bool:
