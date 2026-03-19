@@ -26,7 +26,7 @@ services:
         mkdir -p /data/site-packages
         for i in 1 2 3; do
           echo "[pip-deps] Attempt $$i/3: installing workspace deps..."
-          if pip install --target=/data/site-packages --no-cache-dir duckduckgo-search qdrant-client sentence-transformers; then
+          if pip install --target=/data/site-packages --no-cache-dir duckduckgo-search qdrant-client sentence-transformers httpx; then
             break
           fi
           if [ $$i -eq 3 ]; then echo "[pip-deps] All retries failed"; exit 1; fi
@@ -36,7 +36,7 @@ services:
         chown -R 1000:1000 /data/site-packages
         echo "[pip-deps] Verifying qdrant_client..."
         python3 -c "import sys; sys.path.insert(0, '/data/site-packages'); import qdrant_client; print('qdrant_client OK')" || exit 1
-        echo "workspace deps installed (duckduckgo-search, qdrant-client, sentence-transformers)"
+        echo "workspace deps installed (duckduckgo-search, qdrant-client, sentence-transformers, httpx)"
     restart: "no"
     depends_on:
       openclaw-init:
@@ -63,6 +63,7 @@ services:
       - QDRANT_URL={{ qdrant_primary_url }}
       - QDRANT_FALLBACK_URL={{ qdrant_fallback_url }}
       - PYTHONPATH=/home/node/.openclaw/site-packages
+      - MASTERCLAW_URL=http://masterclaw:8090
     depends_on:
       openclaw-init:
         condition: service_completed_successfully
@@ -139,10 +140,41 @@ services:
     networks:
       - dave-it-guy
 
+  # MasterClaw — orchestrator: API to spin off sub-agent (worker) containers using Ollama
+  masterclaw:
+    build: ./masterclaw
+    image: dave-it-guy-masterclaw:latest
+    container_name: dave-it-guy-masterclaw
+    restart: unless-stopped
+    ports:
+      - "{{ masterclaw_port | default('8090') }}:8090"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - subagent_tasks:/tasks
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - MASTERCLAW_WORKER_IMAGE=dave-it-guy-masterclaw:latest
+      - MASTERCLAW_NETWORK={{ compose_project_name }}_dave-it-guy
+      - MASTERCLAW_TASKS_ROOT=/tasks
+      - MASTERCLAW_TASKS_VOLUME={{ compose_project_name }}_subagent_tasks
+      - MASTERCLAW_DEPLOY_PATH={{ deploy_path }}
+      - MASTERCLAW_OPENCLAW_VOLUME={{ compose_project_name }}_openclaw_data
+      - MASTERCLAW_OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:latest
+      - QDRANT_URL={{ qdrant_primary_url }}
+      - QDRANT_FALLBACK_URL={{ qdrant_fallback_url }}
+    depends_on:
+      ollama:
+        condition: service_started
+      qdrant:
+        condition: service_healthy
+    networks:
+      - dave-it-guy
+
 volumes:
   openclaw_data:
   ollama_models:
   qdrant_data:
+  subagent_tasks:
 
 networks:
   dave-it-guy:

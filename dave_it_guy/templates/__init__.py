@@ -9,8 +9,8 @@ from typing import Any
 TEMPLATES: list[dict[str, Any]] = [
     {
         "name": "openclaw",
-        "description": "Full AI assistant — OpenClaw + Ollama + Qdrant",
-        "services": ["openclaw", "ollama", "qdrant"],
+        "description": "Full AI assistant — OpenClaw + Ollama + Qdrant + MasterClaw orchestrator",
+        "services": ["openclaw", "ollama", "qdrant", "masterclaw"],
         "tier": "free",
         "default_port": 18789,
     },

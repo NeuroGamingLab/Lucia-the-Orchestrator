@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -20,6 +21,52 @@ from dave_it_guy.templates import get_template_dir
 console = Console()
 
 DEPLOY_DIR = Path.home() / ".dave_it_guy" / "deployments"
+
+
+def _docker_cli_path() -> str | None:
+    """Return path to docker if found (PATH + common locations, incl. Docker Desktop on macOS)."""
+    found = shutil.which("docker")
+    if found:
+        return found
+    for p in (
+        "/usr/bin/docker",
+        "/usr/local/bin/docker",
+        "/opt/homebrew/bin/docker",
+        "/Applications/Docker.app/Contents/Resources/bin/docker",
+    ):
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return None
+
+
+def _resolve_docker_cli() -> str:
+    """Find docker executable or print help and raise FileNotFoundError."""
+    p = _docker_cli_path()
+    if p:
+        return p
+    console.print(
+        "\n[red]❌ Docker CLI not found.[/red]\n"
+        "[yellow]Dave IT Guy needs the `docker` command.[/yellow]\n\n"
+        "• [bold]macOS:[/bold] Install Docker Desktop, start it, then run from a terminal where "
+        "`which docker` works. If you use Cursor/VS Code, the integrated terminal may not see "
+        "the same PATH as iTerm — add Docker to PATH or open Docker Desktop → Settings → "
+        "Advanced → ensure CLI tools are available.\n"
+        "• [bold]Linux:[/bold] Install `docker.io` or Docker CE CLI; add your user to the "
+        "`docker` group if needed.\n"
+        "• [bold]Docker image:[/bold] Rebuild with the repo Dockerfile (includes docker.io).\n"
+    )
+    raise FileNotFoundError("docker")
+
+
+def _resolve_docker_compose_v1() -> str | None:
+    """Standalone docker-compose binary if present."""
+    found = shutil.which("docker-compose")
+    if found:
+        return found
+    for p in ("/usr/bin/docker-compose", "/usr/local/bin/docker-compose"):
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return None
 
 
 def deploy_stack(name: str, template: dict[str, Any], options: dict[str, Any]) -> None:
@@ -61,7 +108,13 @@ def deploy_stack(name: str, template: dict[str, Any], options: dict[str, Any]) -
         else:
             # Step 3: Pull images
             task3 = progress.add_task("Pulling container images...", total=None)
-            _docker_compose(deploy_path, ["pull"])
+            # Some services (e.g. MasterClaw) use `build:`. `docker compose pull` will still
+            # try to pull their `image:` tag, which fails if not built yet.
+            # `--ignore-pull-failures` keeps deploy robust across build-vs-pull services.
+            try:
+                _docker_compose(deploy_path, ["pull", "--ignore-pull-failures"])
+            except subprocess.CalledProcessError:
+                _docker_compose(deploy_path, ["pull"])
             progress.update(task3, description="✅ Images pulled")
 
             # Step 4: Start services
@@ -239,6 +292,9 @@ def _render_templates(name: str, deploy_path: Path, options: dict[str, Any]) -> 
     context = {
         "gateway_port": options.get("port") or 18789,
         "ollama_port": options.get("ollama_port"),
+        "masterclaw_port": options.get("masterclaw_port") or 8090,
+        "compose_project_name": name,
+        "deploy_path": str(deploy_path.resolve()),
         "gpu": options.get("gpu", False),
         "env_vars": env_vars,
         "qdrant_primary_url": options.get("qdrant_primary_url") or "http://16.52.188.82:6333/",
@@ -289,6 +345,20 @@ def _render_templates(name: str, deploy_path: Path, options: dict[str, Any]) -> 
             if workspace_dst.exists():
                 shutil.rmtree(workspace_dst)
             shutil.copytree(workspace_src, workspace_dst)
+        # Copy MasterClaw orchestrator (Dockerfile + app + worker) for build
+        masterclaw_src = template_dir / "masterclaw"
+        masterclaw_dst = deploy_path / "masterclaw"
+        if masterclaw_src.exists():
+            if masterclaw_dst.exists():
+                shutil.rmtree(masterclaw_dst)
+            shutil.copytree(masterclaw_src, masterclaw_dst)
+        # Copy scripts for full-OpenClaw sub-agent (run_openclaw_task.py)
+        scripts_src = template_dir / "scripts"
+        scripts_dst = deploy_path / "scripts"
+        if scripts_src.exists():
+            if scripts_dst.exists():
+                shutil.rmtree(scripts_dst)
+            shutil.copytree(scripts_src, scripts_dst)
 
 
 def _ensure_openclaw_running(deploy_path: Path) -> bool:
@@ -300,7 +370,7 @@ def _ensure_openclaw_running(deploy_path: Path) -> bool:
 
     def _is_running() -> bool:
         r = subprocess.run(
-            ["docker", "inspect", "--format", "{{.State.Running}}", container],
+            [_resolve_docker_cli(), "inspect", "--format", "{{.State.Running}}", container],
             capture_output=True,
             text=True,
         )
@@ -338,7 +408,7 @@ def _install_openclaw_memory_qdrant_skill() -> bool:
     for attempt in range(3):
         try:
             result = subprocess.run(
-                ["docker", "exec", container, "sh", "-c", install_script],
+                [_resolve_docker_cli(), "exec", container, "sh", "-c", install_script],
                 capture_output=True,
                 text=True,
                 timeout=120,
@@ -361,17 +431,24 @@ def _install_openclaw_memory_qdrant_skill() -> bool:
 
 def _docker_compose(path: Path, args: list[str]) -> subprocess.CompletedProcess:
     """Run docker compose command."""
+    docker_bin = _resolve_docker_cli()
     # Try 'docker compose' (v2 plugin) first, fall back to 'docker-compose' (standalone)
-    cmd = ["docker", "compose", *args]
-    result = subprocess.run(cmd, cwd=path, capture_output=True, text=True)
+    cmd = [docker_bin, "compose", *args]
+    try:
+        result = subprocess.run(cmd, cwd=path, capture_output=True, text=True)
+    except FileNotFoundError as e:
+        console.print(f"\n[red]❌ Could not run Docker: {e}[/red]")
+        raise
 
     if result.returncode != 0:
         # Check if it's a "compose not found" vs actual compose error
         stderr = result.stderr or ""
         if "is not a docker command" in stderr or "docker: 'compose'" in stderr:
             # Try standalone docker-compose
-            cmd = ["docker-compose", *args]
-            result = subprocess.run(cmd, cwd=path, capture_output=True, text=True)
+            dc = _resolve_docker_compose_v1()
+            if dc:
+                cmd = [dc, *args]
+                result = subprocess.run(cmd, cwd=path, capture_output=True, text=True)
 
         if result.returncode != 0:
             error_msg = result.stderr or result.stdout or "Unknown error"
@@ -409,6 +486,6 @@ def _pull_models(models: list[str]) -> None:
             continue
         console.print(f"  📥 Pulling {model}...")
         subprocess.run(
-            ["docker", "exec", "dave-it-guy-ollama", "ollama", "pull", model],
+            [_resolve_docker_cli(), "exec", "dave-it-guy-ollama", "ollama", "pull", model],
             check=True,
         )

@@ -21,6 +21,44 @@ docker exec -it dave-it-guy-openclaw openclaw tui
 
 Set your Anthropic API key when prompted (or add it later); Ollama is the fallback for local-only use.
 
+## Run the CLI from Docker (localhost)
+
+Build the image from this repo, then use your host’s Docker socket so `deploy` can start the stack on **localhost** (same as `pip install` + `dave-it-guy deploy`).
+
+```bash
+# From the repo root
+docker build -t dave-it-guy:local .
+
+# Smoke test (no Docker socket needed)
+docker run --rm dave-it-guy:local list
+
+# Deploy OpenClaw on localhost (mount socket + persist ~/.dave_it_guy)
+docker run --rm -it \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$HOME/.dave_it_guy:/root/.dave_it_guy" \
+  dave-it-guy:local deploy openclaw
+```
+
+- On **Windows (Docker Desktop)**, use `-v //var/run/docker.sock:/var/run/docker.sock` if the path above does not work.
+- Pass `--skip-setup` and set `ANTHROPIC_API_KEY` (and optional `OPENAI_API_KEY`) in the environment if you want a non-interactive deploy:
+
+  ```bash
+  docker run --rm -it \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "$HOME/.dave_it_guy:/root/.dave_it_guy" \
+    -e ANTHROPIC_API_KEY="your-key" \
+    dave-it-guy:local deploy openclaw --skip-setup --force
+  ```
+
+After deploy, open **http://localhost:18789** or run `docker exec -it dave-it-guy-openclaw openclaw tui` on the host.
+
+The image includes `docker.io` and `docker-compose` so `docker compose` / `docker-compose` work against the host daemon. Image size is large because the package depends on PyTorch / sentence-transformers for workspace tooling.
+
+**If you see `FileNotFoundError: ... 'docker'`** when running `dave-it-guy` on the host (e.g. from Cursor): your shell’s `PATH` may not include the Docker CLI. Run `which docker` in that same terminal; if empty, add Docker Desktop’s bin to PATH (often `/usr/local/bin` or `/Applications/Docker.app/Contents/Resources/bin/docker`) or run deploy from Terminal.app/iTerm where Docker works. The CLI now also searches those paths automatically on macOS.
+
+**Compose helper:** `docker compose -f docker-compose.cli.yml build` then  
+`docker compose -f docker-compose.cli.yml run --rm dave-it-guy deploy openclaw` (override `command` as needed).
+
 ## What You Get
 
 - **OpenClaw** — AI agent gateway and TUI

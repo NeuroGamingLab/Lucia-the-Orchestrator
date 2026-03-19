@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 
 from rich.console import Console
 from rich.table import Table
+
+from dave_it_guy.deploy import _docker_cli_path
 
 console = Console()
 
@@ -55,21 +56,34 @@ def run_doctor() -> None:
 
 
 def _check_docker() -> tuple[bool, str]:
-    if shutil.which("docker"):
-        result = subprocess.run(["docker", "--version"], capture_output=True, text=True)
+    docker_bin = _docker_cli_path()
+    if not docker_bin:
+        return (
+            False,
+            "Docker CLI not on PATH. Install Docker Desktop (macOS) or docker.io (Linux). "
+            "On macOS, Cursor’s terminal may need the same PATH as iTerm (see Docker.app bin).",
+        )
+    result = subprocess.run([docker_bin, "--version"], capture_output=True, text=True)
+    if result.returncode == 0:
         return True, result.stdout.strip()
-    return False, "Docker not found. Install: https://docs.docker.com/get-docker/"
+    return False, result.stderr.strip() or "docker --version failed"
 
 
 def _check_compose() -> tuple[bool, str]:
-    result = subprocess.run(["docker", "compose", "version"], capture_output=True, text=True)
+    docker_bin = _docker_cli_path()
+    if not docker_bin:
+        return False, "Docker not found (cannot check Compose)."
+    result = subprocess.run([docker_bin, "compose", "version"], capture_output=True, text=True)
     if result.returncode == 0:
         return True, result.stdout.strip()
     return False, "Docker Compose not found. Install: https://docs.docker.com/compose/install/"
 
 
 def _check_docker_running() -> tuple[bool, str]:
-    result = subprocess.run(["docker", "info"], capture_output=True, text=True)
+    docker_bin = _docker_cli_path()
+    if not docker_bin:
+        return False, "Docker not found."
+    result = subprocess.run([docker_bin, "info"], capture_output=True, text=True)
     if result.returncode == 0:
         return True, "Docker daemon is running"
     return False, "Docker daemon not running. Start with: sudo systemctl start docker"

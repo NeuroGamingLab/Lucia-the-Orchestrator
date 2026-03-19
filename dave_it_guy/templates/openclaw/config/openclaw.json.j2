@@ -1,6 +1,11 @@
 {
   "gateway": {
     "bind": "lan",
+    "http": {
+      "endpoints": {
+        "chatCompletions": { "enabled": true }
+      }
+    },
     "controlUi": {
       "allowedOrigins": [
         "http://127.0.0.1:{{ gateway_port }}",

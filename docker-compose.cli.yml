@@ -1,0 +1,16 @@
+# Optional: run Dave IT Guy CLI in Docker (same as README "Run the CLI from Docker").
+# Usage:
+#   docker compose -f docker-compose.cli.yml run --rm dave-it-guy list
+#   docker compose -f docker-compose.cli.yml run --rm dave-it-guy deploy openclaw
+#
+# Build first: docker compose -f docker-compose.cli.yml build
+
+services:
+  dave-it-guy:
+    build: .
+    image: dave-it-guy:local
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME}/.dave_it_guy:/root/.dave_it_guy
+    entrypoint: ["dave-it-guy"]
+    command: ["list"]

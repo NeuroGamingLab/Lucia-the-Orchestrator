@@ -12,6 +12,7 @@ from rich.table import Table
 from dave_it_guy import __version__
 from dave_it_guy.deploy import deploy_stack, destroy_stack, stack_logs, stack_status, stop_stack
 from dave_it_guy.doctor import run_doctor
+from dave_it_guy.masterclaw_tui import main as masterclaw_tui_main
 from dave_it_guy.templates import get_template, list_templates
 
 app = typer.Typer(
@@ -41,6 +42,10 @@ def deploy(
     ollama_port: Optional[int] = typer.Option(
         None, "--ollama-port",
         help="Host port for Ollama API (default: not exposed). Use if 11434 is in use.",
+    ),
+    masterclaw_port: Optional[int] = typer.Option(
+        None, "--masterclaw-port",
+        help="Host port for MasterClaw orchestrator API (openclaw stack only; default 8090).",
     ),
     detach: bool = typer.Option(True, "--detach/--no-detach", "-d", help="Run in background"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing deployment"),
@@ -86,6 +91,7 @@ def deploy(
         "models": models.split(",") if models else [],
         "port": port,
         "ollama_port": ollama_port,
+        "masterclaw_port": masterclaw_port,
         "detach": detach,
         "force": force,
         "dry_run": dry_run,
@@ -167,6 +173,17 @@ def doctor():
 def version():
     """Show Dave IT Guy version."""
     console.print(f"Dave IT Guy v{__version__}")
+
+
+@app.command(name="masterclaw-tui")
+def masterclaw_tui(
+    url: Optional[str] = typer.Option(
+        None, "--url", "-u",
+        help="MasterClaw API URL (default: http://localhost:8090)",
+    ),
+):
+    """Launch MasterClaw TUI to create sub-agent tasks and view results."""
+    masterclaw_tui_main(url or "http://localhost:8090")
 
 
 def _interactive_setup(stack: str, api_key: str | None = None) -> dict[str, str]:
