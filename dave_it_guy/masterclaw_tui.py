@@ -6,6 +6,8 @@ Create sub-agent tasks (lightweight or full OpenClaw), poll status, view results
 from __future__ import annotations
 
 import sys
+import threading
+import time
 from typing import Optional
 
 import httpx
@@ -15,10 +17,14 @@ from rich.prompt import Prompt, IntPrompt
 from rich.table import Table
 
 console = Console()
+# Serialize Rich output when background thread prints completion panel.
+_console_lock = threading.Lock()
 
 DEFAULT_URL = "http://localhost:8090"
 POLL_INTERVAL = 2
 MAX_POLL_SECONDS = 600
+# Cap result text in background panel for terminal usability.
+MAX_RESULT_CHARS = 12000
 
 
 def _api(base_url: str) -> str:
@@ -122,7 +128,6 @@ def list_jobs(base_url: str) -> None:
 
 def poll_until_done(base_url: str, job_id: str) -> None:
     """Poll job until completed/failed and show result."""
-    import time
     deadline = time.monotonic() + MAX_POLL_SECONDS
     while time.monotonic() < deadline:
         try:
@@ -145,6 +150,68 @@ def poll_until_done(base_url: str, job_id: str) -> None:
         console.print(f"  Status: [dim]{status}[/dim] ...")
         time.sleep(POLL_INTERVAL)
     console.print("[yellow]Timed out waiting for result.[/yellow]")
+
+
+def _poll_interactive_completion_background(base_url: str, job_id: str) -> None:
+    """
+    Poll MasterClaw until job completes or fails; print result in a second panel.
+    Runs in a daemon thread so the main menu is not blocked.
+    """
+    deadline = time.monotonic() + MAX_POLL_SECONDS
+    api = _api(base_url)
+    while time.monotonic() < deadline:
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                r = client.get(f"{api}/subagent/{job_id}")
+                r.raise_for_status()
+                data = r.json()
+        except Exception as e:
+            with _console_lock:
+                console.print(
+                    Panel(
+                        f"Job: [bold]{job_id}[/bold]\n[red]Poll error: {e}[/red]",
+                        title="Sub-agent result (background)",
+                        border_style="red",
+                    )
+                )
+            return
+        status = data.get("status", "")
+        if status == "completed":
+            result = data.get("result") or {}
+            output = result.get("output", "") or ""
+            if len(output) > MAX_RESULT_CHARS:
+                output = output[:MAX_RESULT_CHARS] + "\n\n[dim]… (truncated)[/dim]"
+            body = (
+                f"Job: [bold]{job_id}[/bold]\n"
+                f"Status: [green]completed[/green]\n\n"
+                f"[green]Result:[/green]\n{output}"
+            )
+            with _console_lock:
+                console.print(
+                    Panel(body, title="Sub-agent result (background)", border_style="green")
+                )
+            return
+        if status == "failed":
+            err = data.get("error") or "unknown error"
+            with _console_lock:
+                console.print(
+                    Panel(
+                        f"Job: [bold]{job_id}[/bold]\nStatus: [red]failed[/red]\n\n[red]{err}[/red]",
+                        title="Sub-agent result (background)",
+                        border_style="red",
+                    )
+                )
+            return
+        time.sleep(POLL_INTERVAL)
+    with _console_lock:
+        console.print(
+            Panel(
+                f"Job: [bold]{job_id}[/bold]\n[yellow]Timed out waiting for completion "
+                f"({MAX_POLL_SECONDS}s). Use option 3 to check status.[/yellow]",
+                title="Sub-agent result (background)",
+                border_style="yellow",
+            )
+        )
 
 
 def main(url: str = DEFAULT_URL) -> None:
@@ -187,11 +254,18 @@ def main(url: str = DEFAULT_URL) -> None:
                     Panel(
                         f"Job created (interactive).\nJob ID: [bold]{job_id}[/bold]\n"
                         f"Attach: docker exec -it {container_name} openclaw tui\n"
-                        f"Status: use option 3 to check progress later.",
+                        f"[dim]Initial task result will appear in a second panel when ready "
+                        f"(non-blocking).[/dim]",
                         title="Sub-agent interactive",
                         border_style="green",
                     )
                 )
+                threading.Thread(
+                    target=_poll_interactive_completion_background,
+                    args=(url, job_id),
+                    daemon=True,
+                    name=f"masterclaw-poll-{job_id[:8]}",
+                ).start()
         elif choice == 3:
             get_status(url)
         elif choice == 4:

@@ -1,6 +1,7 @@
 
-# OpenClaw workspace files (private)
+# OpenClaw workspace files (private) — defaults live in templates/openclaw/workspace/
 AGENTS.md
+!templates/openclaw/workspace/AGENTS.md
 BOOTSTRAP.md
 HEARTBEAT.md
 IDENTITY.md
