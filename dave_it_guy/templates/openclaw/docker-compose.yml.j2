@@ -151,6 +151,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - subagent_tasks:/tasks
+      - "{{ deploy_path }}:{{ deploy_path }}:ro"
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - MASTERCLAW_WORKER_IMAGE=dave-it-guy-masterclaw:latest

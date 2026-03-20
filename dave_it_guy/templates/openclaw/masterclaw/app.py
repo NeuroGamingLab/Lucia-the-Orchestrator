@@ -39,6 +39,7 @@ class SubagentRequest(BaseModel):
     model: str = "llama3.2"
     timeout_seconds: int = 300
     use_full_openclaw: bool = False
+    interactive: bool = False
 
 
 class SubagentResponse(BaseModel):
@@ -88,8 +89,8 @@ def _tasks_volume_name() -> str | None:
     return os.environ.get("MASTERCLAW_TASKS_VOLUME")
 
 
-def _run_full_openclaw_job(job_id: str) -> None:
-    """Background: wait for sub-OpenClaw gateway, POST task, write output, stop container."""
+def _run_full_openclaw_job(job_id: str, cleanup: bool = True) -> None:
+    """Background: wait for sub-OpenClaw gateway, POST task, write output, optionally stop container."""
     job_dir = TASKS_ROOT / job_id
     output_path = job_dir / "output.json"
     container_name = f"openclaw-subagent-{job_id}"
@@ -133,7 +134,7 @@ def _run_full_openclaw_job(job_id: str) -> None:
             pass
         time.sleep(1)
     else:
-        _write_and_cleanup(container, output_path, "OpenClaw gateway did not become ready")
+        _write_and_cleanup(container, output_path, "OpenClaw gateway did not become ready", cleanup=cleanup)
         return
 
     env_file = Path(deploy_path) / ".env"
@@ -161,7 +162,7 @@ def _run_full_openclaw_job(job_id: str) -> None:
             r.raise_for_status()
             data = r.json()
     except Exception as e:
-        _write_and_cleanup(container, output_path, str(e))
+        _write_and_cleanup(container, output_path, str(e), cleanup=cleanup)
         return
 
     choices = data.get("choices", [])
@@ -169,20 +170,22 @@ def _run_full_openclaw_job(job_id: str) -> None:
     output_path.write_text(
         json.dumps({"status": "completed", "result": {"output": text, "model": "openclaw"}}, indent=2)
     )
-    try:
-        container.stop(timeout=10)
-        container.remove()
-    except Exception:
-        pass
+    if cleanup:
+        try:
+            container.stop(timeout=10)
+            container.remove()
+        except Exception:
+            pass
 
 
-def _write_and_cleanup(container, output_path: Path, error: str) -> None:
+def _write_and_cleanup(container, output_path: Path, error: str, cleanup: bool = True) -> None:
     output_path.write_text(json.dumps({"status": "failed", "error": error}))
-    try:
-        container.stop(timeout=10)
-        container.remove()
-    except Exception:
-        pass
+    if cleanup:
+        try:
+            container.stop(timeout=10)
+            container.remove()
+        except Exception:
+            pass
 
 
 @app.post("/subagent", response_model=SubagentResponse)
@@ -191,6 +194,7 @@ def create_subagent(req: SubagentRequest):
     job_id = str(uuid.uuid4())
     job_dir = TASKS_ROOT / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[MasterClaw] create_subagent job_id={job_id} use_full_openclaw={req.use_full_openclaw} interactive={req.interactive}", flush=True)
 
     input_path = job_dir / "input.json"
     payload = {
@@ -198,6 +202,7 @@ def create_subagent(req: SubagentRequest):
         "context": req.context or "",
         "model": req.model if req.model in SUPPORTED_MODELS else "llama3.2",
         "timeout_seconds": max(60, min(600, req.timeout_seconds)),
+        "interactive": req.interactive,
     }
     input_path.write_text(json.dumps(payload, indent=2))
 
@@ -247,7 +252,17 @@ def create_subagent(req: SubagentRequest):
                 volumes=vol_map,
                 environment=env_vars,
             )
-            threading.Thread(target=_run_full_openclaw_job, args=(job_id,), daemon=True).start()
+            cleanup = not req.interactive
+            print(f"[MasterClaw] started openclaw container name={container_name}; cleanup={cleanup}", flush=True)
+            # Make job immediately visible as "running" for the TUI.
+            (job_dir / "output.json").write_text(
+                json.dumps({"status": "running", "result": None, "error": None}, indent=2)
+            )
+            threading.Thread(
+                target=_run_full_openclaw_job,
+                args=(job_id, cleanup),
+                daemon=True,
+            ).start()
         except Exception as e:
             (job_dir / "output.json").write_text(
                 json.dumps({"status": "failed", "error": str(e)})

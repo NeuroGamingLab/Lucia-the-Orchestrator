@@ -25,7 +25,7 @@ def _api(base_url: str) -> str:
     return base_url.rstrip("/")
 
 
-def create_task(base_url: str, use_full_openclaw: bool) -> Optional[str]:
+def create_task(base_url: str, use_full_openclaw: bool, interactive: bool = False) -> Optional[str]:
     """Create a sub-agent job. Returns job_id or None."""
     task = Prompt.ask("[bold cyan]Task[/bold cyan]")
     if not task.strip():
@@ -48,6 +48,7 @@ def create_task(base_url: str, use_full_openclaw: bool) -> Optional[str]:
         "model": model,
         "timeout_seconds": 300,
         "use_full_openclaw": use_full_openclaw,
+        "interactive": interactive,
     }
     try:
         with httpx.Client(timeout=30.0) as client:
@@ -168,9 +169,29 @@ def main(url: str = DEFAULT_URL) -> None:
             if job_id and Prompt.ask("Poll until done?", choices=["y", "n"], default="y") == "y":
                 poll_until_done(url, job_id)
         elif choice == 2:
-            job_id = create_task(url, use_full_openclaw=True)
-            if job_id and Prompt.ask("Poll until done?", choices=["y", "n"], default="y") == "y":
-                poll_until_done(url, job_id)
+            keep_running = (
+                Prompt.ask(
+                    "Option B: keep full OpenClaw container running for attach?",
+                    choices=["y", "n"],
+                    default="n",
+                )
+                == "y"
+            )
+            job_id = create_task(url, use_full_openclaw=True, interactive=keep_running)
+            if job_id and not keep_running:
+                if Prompt.ask("Poll until done?", choices=["y", "n"], default="y") == "y":
+                    poll_until_done(url, job_id)
+            elif job_id and keep_running:
+                container_name = f"openclaw-subagent-{job_id}"
+                console.print(
+                    Panel(
+                        f"Job created (interactive).\nJob ID: [bold]{job_id}[/bold]\n"
+                        f"Attach: docker exec -it {container_name} openclaw tui\n"
+                        f"Status: use option 3 to check progress later.",
+                        title="Sub-agent interactive",
+                        border_style="green",
+                    )
+                )
         elif choice == 3:
             get_status(url)
         elif choice == 4:

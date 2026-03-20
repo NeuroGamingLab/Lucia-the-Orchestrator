@@ -4,6 +4,14 @@
 
 Dave-IT-Guy delivers a **fully containerized** stack with **OpenClaw as its core engine** plus Ollama and Qdrant, in a single command. No host installs, no config archaeology. Everything runs in Docker; run locally or ship to the cloud. Same stack, anywhere.
 
+**From single assistant to self-orchestrating system.**
+
+`dave-it-guy` transforms from a single operator into **dave-the-MasterClaw**: a recursive orchestrator with one control plane that can spawn specialized OpenClaw runtimes on demand. In this model, the original TUI is no longer just a launcher for one stack; it becomes a parent agent that delegates work to child agents, each running as an independent OpenClaw container with its own execution lifecycle.
+
+This is the shift from a single-instance assistant to a multi-instance self-orchestrating system: `dave-it-guy` becomes the “master of itself,” able to launch, supervise, and coordinate additional OpenClaw sub-agents, then either clean them up automatically or keep them alive for interactive continuation.
+
+![Dave the MasterClaw architecture](https://raw.githubusercontent.com/NeuroGamingLab/KrakenWhip/feature/openclaw-external-orchestrator/dave-the-masterClaw-architecture-small.png)
+
 ## Quick Start
 
 ```bash
@@ -33,6 +41,10 @@ docker build -t dave-it-guy:local .
 docker run --rm dave-it-guy:local list
 
 # Deploy OpenClaw on localhost (mount socket + persist ~/.dave_it_guy)
+# Note: this container runs as root *inside the container only* so it can
+# access /var/run/docker.sock and write deployment state at /root/.dave_it_guy.
+# Conceptually, Dave-The-MasterClaw is the orchestrator with Docker control, which is
+# why it needs this level of access to launch and manage sub-agent containers.
 docker run --rm -it \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v "$HOME/.dave_it_guy:/root/.dave_it_guy" \
@@ -52,18 +64,14 @@ docker run --rm -it \
 
 After deploy, open **http://localhost:18789** or run `docker exec -it dave-it-guy-openclaw openclaw tui` on the host.
 
-The image includes `docker.io` and `docker-compose` so `docker compose` / `docker-compose` work against the host daemon. Image size is large because the package depends on PyTorch / sentence-transformers for workspace tooling.
-
-**If you see `FileNotFoundError: ... 'docker'`** when running `dave-it-guy` on the host (e.g. from Cursor): your shell’s `PATH` may not include the Docker CLI. Run `which docker` in that same terminal; if empty, add Docker Desktop’s bin to PATH (often `/usr/local/bin` or `/Applications/Docker.app/Contents/Resources/bin/docker`) or run deploy from Terminal.app/iTerm where Docker works. The CLI now also searches those paths automatically on macOS.
-
-**Compose helper:** `docker compose -f docker-compose.cli.yml build` then  
-`docker compose -f docker-compose.cli.yml run --rm dave-it-guy deploy openclaw` (override `command` as needed).
-
 ## What You Get
 
-- **OpenClaw** — AI agent gateway and TUI
-- **Ollama** — local LLMs (Llama, Mistral, etc.)
-- **Qdrant** — vector memory
+- **OpenClaw (main runtime)** — AI agent gateway, tools, and TUI
+- **MasterClaw (external orchestrator)** — launches and coordinates sub-agent jobs
+- **Enhanced terminal UI** — `masterclaw-tui` to create, monitor, and manage sub-agents
+- **Multi-instance execution** — run lightweight workers or full OpenClaw sub-agents per task
+- **Ollama** — local/shared model backend for workers and fallback model path
+- **Qdrant** — shared vector memory across main and sub-agent flows
 
 Fully containerized: the whole stack runs in Docker, no installs on your host machine.
 
@@ -81,9 +89,13 @@ Fully containerized: the whole stack runs in Docker, no installs on your host ma
 ```bash
 dave-it-guy list              # Available stacks
 dave-it-guy deploy openclaw   # Deploy
+dave-it-guy masterclaw-tui    # Launch MasterClaw Enhanced terminal UI
 dave-it-guy status openclaw   # Status
 dave-it-guy logs openclaw     # Logs
+dave-it-guy stop openclaw     # Stop stack (preserve data)
+dave-it-guy destroy openclaw  # Remove stack
 dave-it-guy doctor            # Diagnose issues
+dave-it-guy version           # CLI version
 ```
 
 ## Pricing
