@@ -21,6 +21,7 @@ from dave_it_guy.deploy import (
 from dave_it_guy.doctor import run_doctor
 from dave_it_guy.masterclaw_tui import main as masterclaw_tui_main
 from dave_it_guy.templates import get_template, list_templates
+from dave_it_guy.voice_assistant import run_voice_loop
 
 app = typer.Typer(
     name="dave-it-guy",
@@ -191,6 +192,75 @@ def masterclaw_tui(
 ):
     """Launch MasterClaw TUI to create sub-agent tasks and view results."""
     masterclaw_tui_main(url or "http://localhost:8090")
+
+
+@app.command(name="voice")
+def voice_command(
+    url: Optional[str] = typer.Option(
+        None,
+        "--url",
+        "-u",
+        help="MasterClaw API URL (default: http://localhost:8090 or MASTERCLAW_URL)",
+    ),
+    allow_cleanup: bool = typer.Option(
+        False,
+        "--allow-cleanup",
+        help="Allow 'Dave cleanup' to delete all sub-agent jobs (destructive)",
+    ),
+    once: bool = typer.Option(
+        False,
+        "--once",
+        help="Process one command after wake word then exit",
+    ),
+    interactive_full: bool = typer.Option(
+        False,
+        "--interactive-full",
+        help="For full OpenClaw jobs, keep container running for attach (same as TUI option B)",
+    ),
+    speak: bool = typer.Option(
+        False,
+        "--speak",
+        "-s",
+        help="Speak replies with TTS (macOS `say`, or Linux spd-say/espeak)",
+    ),
+    tts_voice: Optional[str] = typer.Option(
+        None,
+        "--tts-voice",
+        help="macOS `say -v` voice (optional). Sets DAVE_TTS_VOICE for this run.",
+    ),
+    summarize_speech: bool = typer.Option(
+        False,
+        "--summarize-speech",
+        help="Before speaking long completed task results, summarize with configured LLM (use with --speak)",
+    ),
+    no_chat_fallback: bool = typer.Option(
+        False,
+        "--no-chat-fallback",
+        help="Do not use LLM chat when a command is not recognized",
+    ),
+):
+    """Voice control for MasterClaw: say 'Dave' + command (requires: pip install 'dave-it-guy[voice]')."""
+    import os
+
+    if summarize_speech and not speak:
+        console.print(
+            "[yellow]--summarize-speech requires --speak.[/yellow] "
+            "Example: [bold]dave-it-guy voice --speak --summarize-speech[/bold]"
+        )
+        raise typer.Exit(1)
+
+    base = url or os.environ.get("MASTERCLAW_URL", "http://localhost:8090")
+    if tts_voice is not None:
+        os.environ["DAVE_TTS_VOICE"] = tts_voice
+    run_voice_loop(
+        base,
+        allow_cleanup=allow_cleanup,
+        once=once,
+        interactive_full=interactive_full,
+        speak=speak,
+        speak_summarize=summarize_speech,
+        chat_fallback=not no_chat_fallback,
+    )
 
 
 @app.command(name="sync-openclaw-scheduler")

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dave-it-guy"
-version = "0.2.9"
+version = "0.2.10"
 description = "Dave IT Guy — Deploy AI stacks with one command. OpenClaw, Ollama, Qdrant—fully containerized. Run locally or ship to the cloud. Same stack, anywhere."
 readme = "README.md"
 license = "MIT"
@@ -40,6 +40,12 @@ dependencies = [
 cloud = ["python-hcl2>=4.0.0"]
 dev = ["pytest>=7.0", "pytest-cov", "ruff", "mypy"]
 search = ["duckduckgo-search>=6.0.0"]
+# Microphone + Google Web Speech API (requires network). macOS: brew install portaudio for PyAudio
+voice = ["SpeechRecognition>=3.10.0", "pyaudio>=0.2.14"]
+# Webcam + MediaPipe gesture demo (`dave_it_guy.examples.hand_interaction`). Includes SpeechRecognition for cube-hold → voice task.
+# Pin mediapipe: some newer wheels ship test *.py files that break under pip's compile step on Python 3.9 / certain macOS setups.
+# Mediapipe pulls in OpenCV (contrib); do not add opencv-python separately — avoids duplicate/conflicting cv2 packages.
+hand = ["mediapipe==0.10.14", "SpeechRecognition>=3.10.0"]
 
 [project.scripts]
 dave-it-guy = "dave_it_guy.cli:app"
@@ -63,7 +69,15 @@ select = ["E", "F", "I", "N", "W", "UP"]
 
 # Optional[] required in cli.py for Python 3.9 (Typer evaluates annotations at runtime)
 [tool.ruff.lint.per-file-ignores]
-"dave_it_guy/cli.py" = ["UP045"]
+"dave_it_guy/cli.py" = ["UP045", "E501"]
+"dave_it_guy/masterclaw_tui.py" = ["UP045", "E501"]
+"dave_it_guy/voice_assistant.py" = ["E501"]
+"dave_it_guy/voice_chat.py" = ["E501"]
+"dave_it_guy/voice_session_memory.py" = ["E501"]
+"dave_it_guy/voice_tts.py" = ["E501"]
+"dave_it_guy/voice_summarize.py" = ["E501"]
+"dave_it_guy/hand_calibration.py" = ["E501"]
+"dave_it_guy/examples/hand_interaction.py" = ["E501", "N806"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

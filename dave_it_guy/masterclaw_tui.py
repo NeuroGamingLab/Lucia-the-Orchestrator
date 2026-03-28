@@ -5,15 +5,17 @@ Create sub-agent tasks (lightweight or full OpenClaw), poll status, view results
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 import httpx
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt, IntPrompt
+from rich.prompt import IntPrompt, Prompt
 from rich.table import Table
 
 console = Console()
@@ -257,15 +259,82 @@ def main(url: str = DEFAULT_URL) -> None:
     ))
     while True:
         console.print()
+        console.print("  [bold]0[/bold] Gesture interaction (full OpenClaw container)")
         console.print("  [bold]1[/bold] Create task (lightweight worker)")
         console.print("  [bold]2[/bold] Create task (full OpenClaw container)")
         console.print("  [bold]3[/bold] Get job status")
         console.print("  [bold]4[/bold] List jobs (4B: cleanup all tasks/sub-agents)")
         console.print("  [bold]5[/bold] Exit")
-        choice = IntPrompt.ask("[bold]Choice (1-5)[/bold]", default=1)
+        choice = IntPrompt.ask("[bold]Choice (0-5)[/bold]", default=1)
         if choice == 5:
             console.print("[dim]Bye.[/dim]")
             break
+        if choice == 0:
+            try:
+                import cv2  # noqa: F401
+            except Exception as e:
+                console.print(
+                    Panel(
+                        "Gesture interaction (full OpenClaw container) is not available.\n\n"
+                        f"[red]{e}[/red]\n\n"
+                        "[dim]Tip: install demo deps and run again:[/dim]\n"
+                        '[dim]  pip install "dave-it-guy[hand]"[/dim]\n'
+                        "[dim]You can also run: python3 -m dave_it_guy.examples.hand_interaction[/dim]",
+                        title="Gesture interaction (full OpenClaw container)",
+                        border_style="yellow",
+                    )
+                )
+                continue
+            log_dir = Path.home() / ".dave_it_guy" / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / "hand_interaction.log"
+            log_f = open(log_path, "a", encoding="utf-8", buffering=1)
+            log_f.write(
+                f"\n--- hand_interaction {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n"
+            )
+            log_f.flush()
+            popen_kw: dict = {
+                "args": [sys.executable, "-m", "dave_it_guy.examples.hand_interaction"],
+                "stdout": log_f,
+                "stderr": subprocess.STDOUT,
+            }
+            if sys.platform != "win32":
+                popen_kw["start_new_session"] = True
+            try:
+                proc = subprocess.Popen(**popen_kw)
+                log_f.write(f"spawned pid={proc.pid}\n")
+                log_f.flush()
+            except Exception as e:
+                try:
+                    log_f.write(f"spawn failed: {e!s}\n")
+                finally:
+                    log_f.close()
+                console.print(
+                    Panel(
+                        f"Could not start gesture interaction process.\n\n[red]{e}[/red]",
+                        title="Gesture interaction (full OpenClaw container)",
+                        border_style="red",
+                    )
+                )
+                continue
+            console.print(
+                Panel(
+                    "Gesture interaction (full OpenClaw container) started in the background "
+                    "(separate process).\n\n"
+                    f"[dim]Log file (errors + output):[/dim] [cyan]{log_path}[/cyan]\n"
+                    "[dim]If no camera window appears, run: [/dim][bold]tail -f "
+                    f"{log_path}[/bold]\n\n"
+                    "[dim]macOS: grant [bold]Camera[/bold] (and sometimes [bold]Microphone[/bold]) "
+                    "to your terminal app in System Settings → Privacy.\n"
+                    "Or run in a separate terminal:[/dim]\n"
+                    "[bold]python3 -m dave_it_guy.examples.hand_interaction[/bold]\n\n"
+                    "[dim]Close the camera window or press q / ESC there. "
+                    "You can keep using options 1–5 here.[/dim]",
+                    title="Gesture interaction (full OpenClaw container)",
+                    border_style="green",
+                )
+            )
+            continue
         if choice == 1:
             job_id = create_task(url, use_full_openclaw=False)
             if job_id and Prompt.ask("Poll until done?", choices=["y", "n"], default="y") == "y":
@@ -308,7 +377,7 @@ def main(url: str = DEFAULT_URL) -> None:
             if Prompt.ask("Run option 4B cleanup now?", choices=["y", "n"], default="n") == "y":
                 delete_all_jobs_and_subagents(url)
         else:
-            console.print("[yellow]Choose 1–5.[/yellow]")
+            console.print("[yellow]Choose 0–5.[/yellow]")
 
 
 if __name__ == "__main__":

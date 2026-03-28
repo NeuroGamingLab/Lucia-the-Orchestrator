@@ -9,6 +9,11 @@ build/
 *.egg-info/
 *.egg
 
+Sample-Lucia-The-Master/
+
+# MediaPipe task bundles (downloaded at runtime next to examples / cache)
+*.task
+
 # Virtual environments
 .venv/
 .env

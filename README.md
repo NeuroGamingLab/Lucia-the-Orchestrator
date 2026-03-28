@@ -98,6 +98,27 @@ dave-it-guy doctor            # Diagnose issues
 dave-it-guy version           # CLI version
 ```
 
+## Voice and gesture (optional)
+
+Install extras on the host (not inside the OpenClaw container):
+
+```bash
+pip install "dave-it-guy[voice]"    # wake word "Dave" → MasterClaw (needs mic; macOS: brew install portaudio)
+pip install "dave-it-guy[hand]"     # webcam cube-hold → speech → full OpenClaw job via MasterClaw
+```
+
+**Voice:** `dave-it-guy voice` — say **“Dave”** plus a command (lightweight worker, full OpenClaw sub-agent, status, list, etc.). Add `--speak` for TTS, `--summarize-speech` with `--speak` to shorten long results before speaking. Set `MASTERCLAW_URL` if MasterClaw is not on `http://localhost:8090`.
+
+**Gesture:** `dave-it-guy masterclaw-tui` → **option 0** starts the hand/camera demo in a background process, or run `python -m dave_it_guy.examples.hand_interaction` directly. Close the OpenCV window or press **q** / **ESC** there.
+
+**If `pip install` fails while “compiling” mediapipe** (e.g. `SyntaxError` inside `site-packages/mediapipe/.../test/...py`), that step is optional bytecode compilation; install without compiling:
+
+```bash
+pip install --no-compile -e ".[hand]"
+```
+
+Or: `export PIP_NO_COMPILE=1` for one shell, then `pip install -e ".[hand]"`. **Python 3.10+** is often smoother than 3.9 for Mediapipe wheels on macOS.
+
 ## Pricing
 
 **Free** — Local stacks. **Pro** — Cloud (Terraform), priority support.

@@ -91,6 +91,7 @@ The main OpenClaw agent can delegate work to MasterClaw via `simple_subagent.py`
    ```
 
 3. In TUI:
+   - **0** — **Gesture interaction** (optional): starts `dave_it_guy.examples.hand_interaction` in a background process (webcam + cube hold → speech → full OpenClaw job). Requires `pip install "dave-it-guy[hand]"`.
    - **1** — Create task (lightweight worker).
    - **2** — Create task (full OpenClaw), then choose:
      - `n` = default auto-cleanup behavior.
@@ -99,7 +100,9 @@ The main OpenClaw agent can delegate work to MasterClaw via `simple_subagent.py`
    - **4** — List recent job IDs.
    - **5** — Exit.
 
-4. If you choose **Option B** and keep container running:
+4. **Voice control** (optional, host CLI): `pip install "dave-it-guy[voice]"` then `dave-it-guy voice` — wake word **Dave** + spoken commands to the same MasterClaw API (`MASTERCLAW_URL`). Add `--speak` / `--summarize-speech` as needed.
+
+5. If you choose **Option B** and keep container running:
 
    ```bash
    docker exec -it openclaw-subagent-<job_id> openclaw tui
@@ -111,7 +114,7 @@ The main OpenClaw agent can delegate work to MasterClaw via `simple_subagent.py`
    docker rm -f openclaw-subagent-<job_id>
    ```
 
-5. **From inside OpenClaw**:
+6. **From inside OpenClaw**:
 
    ```bash
    python3 /home/node/.openclaw/workspace/simple_subagent.py "Summarize X" "Context..." llama3.2
@@ -183,6 +186,8 @@ To enforce a cap, add admission logic in MasterClaw (for example reject when run
 |------|-------|
 | MasterClaw app + worker | `dave_it_guy/templates/openclaw/masterclaw/` |
 | MasterClaw TUI | `dave_it_guy/masterclaw_tui.py` |
+| Voice CLI (`dave-it-guy voice`) | `dave_it_guy/voice_assistant.py` (+ `voice_tts.py`, `voice_chat.py`, …) |
+| Gesture + webcam demo (TUI **0**) | `dave_it_guy/examples/hand_interaction.py` |
 | OpenClaw workspace tool | `dave_it_guy/templates/openclaw/workspace/simple_subagent.py` |
 | Optional full-task helper script | `dave_it_guy/templates/openclaw/scripts/run_openclaw_task.py` |
 | Compose template | `dave_it_guy/templates/openclaw/docker-compose.yml.j2` |
