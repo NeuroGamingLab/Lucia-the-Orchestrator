@@ -10,7 +10,14 @@ from rich.panel import Panel
 from rich.table import Table
 
 from dave_it_guy import __version__
-from dave_it_guy.deploy import deploy_stack, destroy_stack, stack_logs, stack_status, stop_stack
+from dave_it_guy.deploy import (
+    deploy_stack,
+    destroy_stack,
+    stack_logs,
+    stack_status,
+    stop_stack,
+    sync_openclaw_scheduler_script,
+)
 from dave_it_guy.doctor import run_doctor
 from dave_it_guy.masterclaw_tui import main as masterclaw_tui_main
 from dave_it_guy.templates import get_template, list_templates
@@ -184,6 +191,14 @@ def masterclaw_tui(
 ):
     """Launch MasterClaw TUI to create sub-agent tasks and view results."""
     masterclaw_tui_main(url or "http://localhost:8090")
+
+
+@app.command(name="sync-openclaw-scheduler")
+def sync_openclaw_scheduler():
+    """Sync template simple_scheduler.py into deployed openclaw workspace."""
+    ok = sync_openclaw_scheduler_script()
+    if not ok:
+        raise typer.Exit(1)
 
 
 def _interactive_setup(stack: str, api_key: str | None = None) -> dict[str, str]:

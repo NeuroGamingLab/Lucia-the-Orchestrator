@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dave-it-guy"
-version = "0.2.7"
+version = "0.2.9"
 description = "Dave IT Guy — Deploy AI stacks with one command. OpenClaw, Ollama, Qdrant—fully containerized. Run locally or ship to the cloud. Same stack, anywhere."
 readme = "README.md"
 license = "MIT"

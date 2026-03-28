@@ -126,6 +126,41 @@ def list_jobs(base_url: str) -> None:
     console.print(table)
 
 
+def delete_all_jobs_and_subagents(base_url: str) -> None:
+    """Delete all task records and all openclaw-subagent containers."""
+    confirm = Prompt.ask(
+        "[bold red]Option 4B: Delete ALL tasks and ALL sub-agent containers?[/bold red]",
+        choices=["y", "n"],
+        default="n",
+    )
+    if confirm != "y":
+        console.print("[dim]Cancelled.[/dim]")
+        return
+    second_confirm = Prompt.ask(
+        "[bold red]Type y again to confirm destructive cleanup[/bold red]",
+        choices=["y", "n"],
+        default="n",
+    )
+    if second_confirm != "y":
+        console.print("[dim]Cancelled.[/dim]")
+        return
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            r = client.delete(f"{_api(base_url)}/subagent")
+            r.raise_for_status()
+            data = r.json()
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        return
+    body = (
+        f"Removed containers: [bold]{data.get('removed_containers', 0)}[/bold]\n"
+        f"Failed containers: [bold]{data.get('failed_containers', 0)}[/bold]\n"
+        f"Removed task dirs: [bold]{data.get('removed_task_dirs', 0)}[/bold]\n"
+        f"Failed task dirs: [bold]{data.get('failed_task_dirs', 0)}[/bold]"
+    )
+    console.print(Panel(body, title="Option 4B cleanup result", border_style="green"))
+
+
 def poll_until_done(base_url: str, job_id: str) -> None:
     """Poll job until completed/failed and show result."""
     deadline = time.monotonic() + MAX_POLL_SECONDS
@@ -225,7 +260,7 @@ def main(url: str = DEFAULT_URL) -> None:
         console.print("  [bold]1[/bold] Create task (lightweight worker)")
         console.print("  [bold]2[/bold] Create task (full OpenClaw container)")
         console.print("  [bold]3[/bold] Get job status")
-        console.print("  [bold]4[/bold] List jobs")
+        console.print("  [bold]4[/bold] List jobs (4B: cleanup all tasks/sub-agents)")
         console.print("  [bold]5[/bold] Exit")
         choice = IntPrompt.ask("[bold]Choice (1-5)[/bold]", default=1)
         if choice == 5:
@@ -270,6 +305,8 @@ def main(url: str = DEFAULT_URL) -> None:
             get_status(url)
         elif choice == 4:
             list_jobs(url)
+            if Prompt.ask("Run option 4B cleanup now?", choices=["y", "n"], default="n") == "y":
+                delete_all_jobs_and_subagents(url)
         else:
             console.print("[yellow]Choose 1–5.[/yellow]")
 

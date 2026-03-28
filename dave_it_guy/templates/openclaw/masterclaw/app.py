@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import threading
 import time
 import uuid
@@ -228,14 +229,16 @@ def create_subagent(req: SubagentRequest):
         env_vars.setdefault("OLLAMA_HOST", os.environ.get("OLLAMA_HOST", "http://ollama:11434"))
         env_vars.setdefault("QDRANT_URL", os.environ.get("QDRANT_URL", "http://qdrant:6333/"))
         env_vars.setdefault("QDRANT_FALLBACK_URL", os.environ.get("QDRANT_FALLBACK_URL", "http://qdrant:6333/"))
+        env_vars.setdefault("PYTHONPATH", "/home/node/.openclaw/site-packages")
 
+        # Workspace must be rw: OpenClaw TUI and agent flows write SOUL.md, AGENTS.md, etc.
         vol_map = {
             (
                 _tasks_volume_name()
                 or str(TASKS_ROOT)
             ): {"bind": "/tasks", "mode": "rw"},
             str(deploy / "config"): {"bind": "/app/config", "mode": "ro"},
-            str(deploy / "workspace"): {"bind": "/home/node/.openclaw/workspace", "mode": "ro"},
+            str(deploy / "workspace"): {"bind": "/home/node/.openclaw/workspace", "mode": "rw"},
         }
         try:
             client.volumes.get(openclaw_volume)
@@ -338,6 +341,52 @@ def list_subagent_jobs():
     job_ids = [d.name for d in TASKS_ROOT.iterdir() if d.is_dir() and (d / "input.json").exists()]
     job_ids.sort(reverse=True)
     return {"job_ids": job_ids[:50]}
+
+
+@app.delete("/subagent")
+def delete_all_subagent_state():
+    """
+    Remove all sub-agent task dirs and all openclaw-subagent containers.
+    Intended for explicit manual cleanup from TUI option 4B.
+    """
+    removed_containers = 0
+    failed_containers = 0
+    removed_task_dirs = 0
+    failed_task_dirs = 0
+
+    client = _get_docker_client()
+    try:
+        containers = client.containers.list(all=True, filters={"name": "openclaw-subagent-"})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed listing sub-agent containers: {e}")
+
+    for c in containers:
+        try:
+            c.remove(force=True)
+            removed_containers += 1
+        except Exception:
+            failed_containers += 1
+
+    if TASKS_ROOT.is_dir():
+        for d in TASKS_ROOT.iterdir():
+            if not d.is_dir():
+                continue
+            # Only delete known job dirs
+            if not (d / "input.json").exists():
+                continue
+            try:
+                shutil.rmtree(d)
+                removed_task_dirs += 1
+            except Exception:
+                failed_task_dirs += 1
+
+    return {
+        "status": "ok",
+        "removed_containers": removed_containers,
+        "failed_containers": failed_containers,
+        "removed_task_dirs": removed_task_dirs,
+        "failed_task_dirs": failed_task_dirs,
+    }
 
 
 @app.get("/health")

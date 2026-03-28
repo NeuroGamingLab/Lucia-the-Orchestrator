@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,21 @@ from dave_it_guy.templates import get_template_dir
 console = Console()
 
 DEPLOY_DIR = Path.home() / ".dave_it_guy" / "deployments"
+
+
+def _remove_tree(path: Path) -> None:
+    """
+    Remove a directory tree. On POSIX, use rm -rf so removal matches the shell and
+    avoids shutil.rmtree edge cases on macOS (e.g. OSError Errno 66 ENOTEMPTY on busy
+    or permission-quirky trees under ~/.dave_it_guy).
+    """
+    if not path.exists():
+        return
+    resolved = path.resolve()
+    if sys.platform == "win32":
+        shutil.rmtree(resolved)
+        return
+    subprocess.run(["rm", "-rf", str(resolved)], check=True)
 
 
 def _docker_cli_path() -> str | None:
@@ -239,7 +255,7 @@ def destroy_stack(name: str, remove_volumes: bool = False) -> None:
         down_args.append("-v")
     _docker_compose(deploy_path, down_args)
 
-    shutil.rmtree(deploy_path)
+    _remove_tree(deploy_path)
     console.print(f"[green]✅ Stack '{name}' destroyed.[/green]")
 
 
@@ -279,6 +295,38 @@ def stack_logs(name: str, follow: bool = False, tail: int = 50, service: str | N
         args.append(service)
 
     _docker_compose(deploy_path, args)
+
+
+def sync_openclaw_scheduler_script() -> bool:
+    """
+    Copy template scheduler script into deployed OpenClaw workspace.
+    Returns True on success, False if source/target missing.
+    """
+    template_scheduler = (
+        get_template_dir("openclaw") / "workspace" / "simple_scheduler.py"
+    )
+    deployed_scheduler = (
+        DEPLOY_DIR / "openclaw" / "workspace" / "simple_scheduler.py"
+    )
+    if not template_scheduler.exists():
+        console.print(f"[red]❌ Template not found: {template_scheduler}[/red]")
+        return False
+    if not deployed_scheduler.parent.exists():
+        console.print(
+            "[red]❌ OpenClaw deployment workspace not found. Deploy openclaw first.[/red]"
+        )
+        return False
+    shutil.copy2(template_scheduler, deployed_scheduler)
+    console.print(
+        Panel(
+            "[bold green]✅ Synced scheduler script[/bold green]\n\n"
+            f"Source: [dim]{template_scheduler}[/dim]\n"
+            f"Target: [dim]{deployed_scheduler}[/dim]",
+            title="OpenClaw Workspace Sync",
+            border_style="green",
+        )
+    )
+    return True
 
 
 def _render_templates(name: str, deploy_path: Path, options: dict[str, Any]) -> None:
@@ -328,7 +376,7 @@ def _render_templates(name: str, deploy_path: Path, options: dict[str, Any]) -> 
     config_dst = deploy_path / "config"
     if config_src.exists():
         if config_dst.exists():
-            shutil.rmtree(config_dst)
+            _remove_tree(config_dst)
         shutil.copytree(config_src, config_dst)
         # Render config .j2 templates (e.g. openclaw Control UI allowedOrigins)
         if name == "openclaw":
@@ -343,21 +391,21 @@ def _render_templates(name: str, deploy_path: Path, options: dict[str, Any]) -> 
         workspace_dst = deploy_path / "workspace"
         if workspace_src.exists():
             if workspace_dst.exists():
-                shutil.rmtree(workspace_dst)
+                _remove_tree(workspace_dst)
             shutil.copytree(workspace_src, workspace_dst)
         # Copy MasterClaw orchestrator (Dockerfile + app + worker) for build
         masterclaw_src = template_dir / "masterclaw"
         masterclaw_dst = deploy_path / "masterclaw"
         if masterclaw_src.exists():
             if masterclaw_dst.exists():
-                shutil.rmtree(masterclaw_dst)
+                _remove_tree(masterclaw_dst)
             shutil.copytree(masterclaw_src, masterclaw_dst)
         # Copy scripts for full-OpenClaw sub-agent (run_openclaw_task.py)
         scripts_src = template_dir / "scripts"
         scripts_dst = deploy_path / "scripts"
         if scripts_src.exists():
             if scripts_dst.exists():
-                shutil.rmtree(scripts_dst)
+                _remove_tree(scripts_dst)
             shutil.copytree(scripts_src, scripts_dst)
 
 
