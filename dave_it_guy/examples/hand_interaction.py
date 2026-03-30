@@ -7,20 +7,26 @@ Claw U is shown only after holding the pose continuously for _CLAW_HOLD_SECONDS
 (default 5s); until then the UI shows progress (Claw hold: x / 5.0s).
 
 Claw detection: if models/claw_mlp.joblib + claw_lstm.pt + claw_meta.json exist
-(trained via collect_claw_data.py + train_claw_models.py), uses MLP+LSTM
-ensemble on the RIGHT hand; otherwise uses geometry heuristics.
+(trained via collect_claw_data.py + train_claw_models.py), uses MLP+LSTM on the
+**right hand if visible**, otherwise on the **left**; geometry heuristics apply to **either** hand.
 
 Uses MediaPipe Tasks: Face Landmarker + Hand Landmarker. By default (``DAVE_HAND_FACE_ROI_FILTER``,
 default on) the face model runs to obtain a face bounding box so hand detections overlapping the
 face are dropped — a misdetected \"face hand\" does not drive CLAW, gestures, or the cube. Set
 ``DAVE_HAND_FACE_ROI_FILTER=0`` to skip the extra face pass (weaker heuristic-only filtering).
 The face mesh is not drawn unless you enable face features. Hands use MediaPipe
-default landmark dots + connection colors (same idea as Sample-Lucia-The-Master), plus wrist and
-forearm-tip motion trails and a live forearm axis line (MCP cluster → wrist, extended — no elbow in the model).
+default landmark dots + connection colors (same idea as Sample-Lucia-The-Master).
 
 Cube hold → speech (multipart task capture, same idea as ``dave-it-guy voice`` full OpenClaw flow):
 
-* **Cube on:** **fist** (per hand, debounced) turns the cube on; open palm / fist while on unchanged.
+* **Cube (Sample-Lucia-The-Master style):** **fist** (landmarks, debounced) **turns the cube on**
+  per hand. **While the cube is on, fist or open palm** keeps it alive.   **Open palm:** cube tracks
+  the **palm pad**; the wireframe **spins continuously** (unwrapped in-plane angle, full 360°+), and
+  **forward/back tilt** (wrist–finger depth or image lean) adjusts the **depth** of the wireframe.
+  **fist:** position follows the hand bbox center (no palm-driven rotation). **Finger spread** resizes
+  the cube (smoothed): more open
+  fingers → larger, tighter curl → smaller (``DAVE_HAND_CUBE_FINGER_RESIZE=0`` disables). Open palm does
+  **not** turn the cube on — only fist does (unless the triangle gate below applies).
   For **full OpenClaw** jobs, ``DAVE_HAND_VOICE_OPENCLAW_INTERACTIVE=1`` (default) creates a
   **persistent** sub-agent (``interactive: true``) and reuses it via ``POST /subagent/{id}/followup``
   when ``DAVE_HAND_VOICE_OPENCLAW_REUSE=1`` (default). Session id is shared with triangle interactive.
@@ -37,6 +43,7 @@ Cube hold → speech (multipart task capture, same idea as ``dave-it-guy voice``
   (``DAVE_HAND_TRIANGLE_FEATURE=0``). Set ``DAVE_HAND_TRIANGLE_FEATURE=1`` to enable sphere mode and
   ``DAVE_HAND_TRIANGLE_INTERACTIVE`` (default on when feature is on) POSTs to MasterClaw; see
   ``DAVE_HAND_TRIANGLE_TASK``, ``DAVE_HAND_TRIANGLE_REUSE_SESSION``, ``DAVE_HAND_TRIANGLE_FOLLOWUP_TASK``.
+  Each visible hand can show a sphere with the same **360° unwrap + pitch** rotation as the cube.
 * ``DAVE_HAND_SIMPLE_LISTEN=1`` — one-shot listen instead of multipart (say done / segments).
 * ``DAVE_HAND_SPEAK=0`` — disable TTS prompts and job readout.
 * ``DAVE_HAND_SUMMARIZE_SPEECH=1`` — summarize long OpenClaw results for overlay + speech (Ollama).
@@ -172,7 +179,7 @@ _FROWN_MIN = 0.22
 _THUMB_BEND_MARGIN = 0.018
 _THUMB_VS_INDEX_MARGIN = 0.012
 
-# "Claw U" shape: thumb + index form a small gap U; other fingers loosely curled (right hand only)
+# "Claw U" shape: thumb + index form a small gap U; other fingers loosely curled (either hand).
 _CLAW_TI_MIN = 0.10  # min dist(thumb tip, index tip) / hand span
 _CLAW_TI_MAX = 0.52  # max (still a U, not wide open)
 _CLAW_INDEX_ANGLE_MIN = 100.0  # slight bend at index PIP
@@ -200,10 +207,20 @@ _CUBE_FIST_OFF_FRAMES = 16  # non-hold pose / lost hand frames before hiding cub
 _CUBE_HOLD_MS_IF_LOST = 350  # keep drawing at last center during short tracking drops
 # EMA smoothing for cube position (lower = stabler) and palm rotation (lower = less jitter).
 # Palm position: higher alpha = cube follows palm movement faster (0.11 felt very laggy).
-_CUBE_CENTER_EMA_PALM = 0.38
+_CUBE_CENTER_EMA_PALM = 0.52
 _CUBE_CENTER_EMA_FIST = 0.26
 # Angle EMA: higher = follows palm rotation more closely (very low values feel sluggish).
 _CUBE_ANGLE_EMA_PALM = 0.32
+# Palm in-plane rotation: integrate angle deltas so the cube can spin past 360° without snapping.
+_CUBE_ANGLE_UNWRAP_DELTA_EMA = 0.55  # low-pass on per-frame delta (reduces jitter)
+# Forward/back tilt → back-face depth + vertical skew (pitch); z-scale is heuristic.
+_CUBE_PITCH_Z_GAIN = 105.0
+# Finger spread → cube size (mean wrist→fingertip dist in normalized space; fist low, open high).
+_CUBE_SIZE_EMA = 0.30
+_CUBE_SPREAD_LO = 0.085
+_CUBE_SPREAD_HI = 0.295
+_CUBE_SCALE_MIN = 0.58
+_CUBE_SCALE_MAX = 1.42
 # Brief MediaPipe dropout while rotating — don't count toward cube-off immediately.
 _CUBE_UNSEEN_GRACE_FRAMES = 15
 _CUBE_TRIGGER_HOLD_SECONDS = 1.25  # after cube is ON for this long, trigger voice→full OpenClaw
@@ -226,64 +243,6 @@ _JOB_POLL_INTERVAL_SEC = 2.0
 _JOB_POLL_MAX_SEC = 600.0
 _JOB_RESULT_MAX_CHARS = 12000
 _JOB_OVERLAY_LINE_CHARS = 88
-# Motion trails: wrist + extrapolated forearm tip (hand model has no elbow — axis is MCP cluster → wrist).
-_WRIST_TRAIL_LEN = 40
-
-
-def _wrist_screen_px(lm: list, w: int, h: int) -> tuple[int, int]:
-    HL = hand_landmarker.HandLandmark
-    p = lm[HL.WRIST]
-    return int(p.x * w), int(p.y * h)
-
-
-def _forearm_axis_screen(
-    lm: list,
-    w: int,
-    h: int,
-    *,
-    extend_px: float,
-) -> tuple[tuple[int, int], tuple[int, int]]:
-    """
-    Wrist and a point along the forearm direction (average MCP → wrist, extended past wrist).
-    Approximates forearm orientation; motion trails show how wrist and forearm move over time.
-    """
-    HL = hand_landmarker.HandLandmark
-    mcx = (
-        lm[HL.INDEX_FINGER_MCP].x
-        + lm[HL.MIDDLE_FINGER_MCP].x
-        + lm[HL.RING_FINGER_MCP].x
-        + lm[HL.PINKY_MCP].x
-    ) / 4.0
-    mcy = (
-        lm[HL.INDEX_FINGER_MCP].y
-        + lm[HL.MIDDLE_FINGER_MCP].y
-        + lm[HL.RING_FINGER_MCP].y
-        + lm[HL.PINKY_MCP].y
-    ) / 4.0
-    wx, wy = lm[HL.WRIST].x, lm[HL.WRIST].y
-    dx, dy = wx - mcx, wy - mcy
-    ln = math.hypot(dx, dy) or 1e-9
-    ux, uy = dx / ln, dy / ln
-    sx, sy = int(wx * w), int(wy * h)
-    ex = int(wx * w + ux * extend_px)
-    ey = int(wy * h + uy * extend_px)
-    return (sx, sy), (ex, ey)
-
-
-def _draw_fade_trail(
-    frame,
-    pts: list[tuple[int, int]],
-    bgr: tuple[int, int, int],
-    *,
-    thickness: int = 2,
-) -> None:
-    """Older segments dimmer so movement reads as a path over time."""
-    if len(pts) < 2:
-        return
-    for i in range(1, len(pts)):
-        t = i / (len(pts) - 1)
-        col = tuple(int(bgr[j] * (0.22 + 0.78 * t)) for j in range(3))
-        cv2.line(frame, pts[i - 1], pts[i], col, thickness, cv2.LINE_AA)
 
 
 def _hand_env_bool(name: str, default: bool = False) -> bool:
@@ -375,6 +334,21 @@ def _hand_span(lm: list) -> float:
     return _dist2_xy(lm[HL.WRIST], lm[HL.MIDDLE_FINGER_MCP])
 
 
+def _finger_mean_tip_wrist_dist(lm: list) -> float:
+    """Mean 2D distance (normalized image coords) wrist → four fingertips; rises as fingers open."""
+    HL = hand_landmarker.HandLandmark
+    w = lm[HL.WRIST]
+    s = 0.0
+    for t in (
+        HL.INDEX_FINGER_TIP,
+        HL.MIDDLE_FINGER_TIP,
+        HL.RING_FINGER_TIP,
+        HL.PINKY_TIP,
+    ):
+        s += _dist2_xy(w, lm[t])
+    return s / 4.0
+
+
 def _palm_hand_rotation_deg(lm: list) -> float:
     """
     Image-plane angle (deg): wrist toward middle finger, blending MCP and tip for a stabler axis
@@ -390,6 +364,36 @@ def _palm_hand_rotation_deg(lm: list) -> float:
         m = lm[HL.MIDDLE_FINGER_MCP]
         return math.degrees(math.atan2(m.y - w.y, m.x - w.x))
     return math.degrees(math.atan2(vy, vx))
+
+
+def _palm_pitch_deg(lm: list) -> float:
+    """
+    Forward / back tilt (degrees) for pseudo-3D: mean fingertip z vs wrist when depth is usable,
+    else image-plane lean of the finger group (toward / away from wrist in y vs x).
+    """
+    HL = hand_landmarker.HandLandmark
+    w = lm[HL.WRIST]
+    tips = (
+        HL.INDEX_FINGER_TIP,
+        HL.MIDDLE_FINGER_TIP,
+        HL.RING_FINGER_TIP,
+        HL.PINKY_TIP,
+    )
+    zw = getattr(w, "z", None)
+    dz_list: list[float] = []
+    if zw is not None:
+        for tid in tips:
+            zt = getattr(lm[tid], "z", None)
+            if zt is not None:
+                dz_list.append(float(zt) - float(zw))
+    if dz_list and max(abs(x) for x in dz_list) > 1e-5:
+        dz = sum(dz_list) / len(dz_list)
+        return float(max(-80.0, min(80.0, _CUBE_PITCH_Z_GAIN * dz)))
+    my = sum(lm[tid].y for tid in tips) / len(tips)
+    mx = sum(lm[tid].x for tid in tips) / len(tips)
+    vy = my - w.y
+    vx = abs(mx - w.x) + 1e-6
+    return float(max(-80.0, min(80.0, math.degrees(math.atan2(vy, vx)))))
 
 
 def _smooth_angle(prev: float | None, new: float, alpha: float) -> float:
@@ -550,6 +554,13 @@ def _is_labeled_right_hand(categories: list[category_lib.Category] | None) -> bo
         return False
     name = (categories[0].category_name or "").lower()
     return "right" in name
+
+
+def _is_labeled_left_hand(categories: list[category_lib.Category] | None) -> bool:
+    if not categories:
+        return False
+    name = (categories[0].category_name or "").lower()
+    return "left" in name
 
 
 def _claw_u_signature(lm: list) -> bool:
@@ -992,16 +1003,38 @@ def _right_hand_index(
     return None
 
 
+def _left_hand_index(
+    hand_landmarks: list,
+    handedness: list[list[category_lib.Category]],
+) -> int | None:
+    for i, _ in enumerate(hand_landmarks):
+        cats = handedness[i] if i < len(handedness) else None
+        if _is_labeled_left_hand(cats):
+            return i
+    return None
+
+
+def _claw_ml_hand_index(
+    hand_landmarks: list,
+    handedness: list[list[category_lib.Category]],
+) -> int | None:
+    """Prefer right hand for ML (typical training setup); use left if right not in frame."""
+    ri = _right_hand_index(hand_landmarks, handedness)
+    if ri is not None:
+        return ri
+    return _left_hand_index(hand_landmarks, handedness)
+
+
 def _raw_claw_heuristic(
     hand_landmarks: list,
     handedness: list[list[category_lib.Category]],
 ) -> bool:
-    """True if right-hand claw matches (U-gap and/or thumb–index inward pinch)."""
+    """True if left or right hand matches claw pose (U-gap / thumb–index inward / thumb–pinky)."""
     if not hand_landmarks:
         return False
     for i, lm in enumerate(hand_landmarks):
         cats = handedness[i] if i < len(handedness) else None
-        if _is_labeled_right_hand(cats) and _claw_pose_any(lm):
+        if (_is_labeled_right_hand(cats) or _is_labeled_left_hand(cats)) and _claw_pose_any(lm):
             return True
     return False
 
@@ -1013,18 +1046,18 @@ def _compute_raw_claw(
     seq_buf: collections.deque,
 ) -> bool:
     """
-    If models/ exist: MLP+LSTM on RIGHT hand, OR geometry (U-claw / inward pinch).
-    Geometry OR keeps the inward-claw variant working even if ML was trained only on U-shapes.
+    If models/ exist: MLP+LSTM on preferred hand (right if present, else left), OR geometry.
+    Geometry OR keeps inward-claw working if ML was trained only on one pose or one side.
     """
     if not hand_landmarks:
         seq_buf.clear()
         return False
     if ml_bundle is not None and claw_features is not None:
-        ri = _right_hand_index(hand_landmarks, handedness)
-        if ri is None:
+        hi = _claw_ml_hand_index(hand_landmarks, handedness)
+        if hi is None:
             seq_buf.clear()
-            return False
-        vec = claw_features.landmarks_to_feature_vector(hand_landmarks[ri])
+            return _raw_claw_heuristic(hand_landmarks, handedness)
+        vec = claw_features.landmarks_to_feature_vector(hand_landmarks[hi])
         seq_buf.append(vec)
         _, _, p = ml_bundle.predict_proba_claw(vec, seq_buf)
         ml_hit = p >= ml_bundle.threshold
@@ -1051,6 +1084,7 @@ def _log_finger_debug(
         cats = handedness[i] if i < len(handedness) else None
         label = cats[0].category_name if cats and cats[0].category_name else "?"
         right = _is_labeled_right_hand(cats)
+        left = _is_labeled_left_hand(cats)
         claw_u = _claw_u_signature(lm)
         claw_in = _claw_thumb_index_inward(lm)
         claw_tp = _claw_thumb_pinky_inward(lm)
@@ -1075,7 +1109,7 @@ def _log_finger_debug(
         pnk_ang = _angle_at_b(lm[HL.PINKY_MCP], lm[HL.PINKY_PIP], lm[HL.PINKY_TIP])
 
         print(
-            f"  hand[{i}] {label}  right={right}  "
+            f"  hand[{i}] {label}  right={right}  left={left}  "
             f"claw_U={claw_u}  claw_ti={claw_in}  claw_tp={claw_tp}  claw_any={claw_pose}  "
             f"thumb={thumb}  everyday={everyday}",
             file=sys.stderr,
@@ -1443,6 +1477,7 @@ def main() -> None:
     except Exception:
         _api_hint = "http://localhost:8090"
     cube_require_triangle = _hand_env_bool("DAVE_HAND_CUBE_REQUIRE_TRIANGLE", False)
+    cube_finger_resize = _hand_env_bool("DAVE_HAND_CUBE_FINGER_RESIZE", True)
     triangle_feature = _hand_env_bool("DAVE_HAND_TRIANGLE_FEATURE", False)
     if face_roi_filter:
         interaction_overlay_log.append(
@@ -1451,9 +1486,15 @@ def main() -> None:
     interaction_overlay_log.append(f"MasterClaw: {_api_hint}")
     interaction_overlay_log.append("Cube hold -> voice -> full OpenClaw job")
     if cube_require_triangle:
-        interaction_overlay_log.append("Cube: two-hand triangle → fist (DAVE_HAND_CUBE_REQUIRE_TRIANGLE=1)")
+        interaction_overlay_log.append(
+            "Cube (DAVE_HAND_CUBE_REQUIRE_TRIANGLE=1): triangle arm → fist on; open palm/fist hold; palm rotates"
+        )
     else:
-        interaction_overlay_log.append("Cube: fist on (triangle gate off; set DAVE_HAND_CUBE_REQUIRE_TRIANGLE=1 to enable)")
+        interaction_overlay_log.append(
+            "Cube: fist on; then open palm or fist = hold; open palm = move + rotate (Lucia-style)"
+        )
+    if cube_finger_resize:
+        interaction_overlay_log.append("Cube size: finger spread (DAVE_HAND_CUBE_FINGER_RESIZE=0 off)")
     if triangle_feature:
         interaction_overlay_log.append(
             "Sphere/triangle: ON (DAVE_HAND_TRIANGLE_INTERACTIVE / DAVE_HAND_TRIANGLE_TASK)"
@@ -1490,6 +1531,9 @@ def main() -> None:
             "center": None,
             "last_ms": 0,
             "cube_angle": 0.0,
+            "cube_angle_prev_raw": None,
+            "cube_pitch_deg": 0.0,
+            "cube_size_scale": 1.0,
             "_cube_reset_smooth": False,
             "cube_unseen_streak": 0,
         },
@@ -1501,6 +1545,9 @@ def main() -> None:
             "center": None,
             "last_ms": 0,
             "cube_angle": 0.0,
+            "cube_angle_prev_raw": None,
+            "cube_pitch_deg": 0.0,
+            "cube_size_scale": 1.0,
             "_cube_reset_smooth": False,
             "cube_unseen_streak": 0,
         },
@@ -1513,6 +1560,8 @@ def main() -> None:
             "center": None,
             "last_ms": 0,
             "sphere_angle": 0.0,
+            "sphere_angle_prev_raw": None,
+            "sphere_pitch_deg": 0.0,
             "_sphere_reset_smooth": False,
             "sphere_unseen_streak": 0,
         },
@@ -1523,6 +1572,8 @@ def main() -> None:
             "center": None,
             "last_ms": 0,
             "sphere_angle": 0.0,
+            "sphere_angle_prev_raw": None,
+            "sphere_pitch_deg": 0.0,
             "_sphere_reset_smooth": False,
             "sphere_unseen_streak": 0,
         },
@@ -1537,14 +1588,6 @@ def main() -> None:
     hand_interactive_oc_lock = threading.Lock()
     voice_point_cancel = threading.Event()
     point_interrupt_streak = 0
-    wrist_trails = {
-        "left": collections.deque(maxlen=_WRIST_TRAIL_LEN),
-        "right": collections.deque(maxlen=_WRIST_TRAIL_LEN),
-    }
-    forearm_trails = {
-        "left": collections.deque(maxlen=_WRIST_TRAIL_LEN),
-        "right": collections.deque(maxlen=_WRIST_TRAIL_LEN),
-    }
 
     # Background trigger state: cube-hold → listen → create full OpenClaw task
     trigger_lock = threading.Lock()
@@ -2266,54 +2309,7 @@ def main() -> None:
             )
 
             raw_claw = False
-            seen_side_trail = {"left": False, "right": False}
-            forearm_extend_px = float(min(w, h)) * 0.13
-            _trail_wrist_left = (180, 90, 255)
-            _trail_wrist_right = (60, 220, 255)
-            _trail_fore_left = (140, 50, 255)
-            _trail_fore_right = (50, 180, 255)
             if hands_lm:
-                for i, hlm in enumerate(hands_lm):
-                    cats = hands_h[i] if i < len(hands_h) else None
-                    hn = ((cats[0].category_name if cats and cats[0].category_name else "") or "").lower()
-                    side = "left" if "left" in hn else "right" if "right" in hn else None
-                    if side is None:
-                        continue
-                    seen_side_trail[side] = True
-                    wrist_trails[side].append(_wrist_screen_px(hlm, w, h))
-                    _, ftip = _forearm_axis_screen(hlm, w, h, extend_px=forearm_extend_px)
-                    forearm_trails[side].append(ftip)
-                for side in ("left", "right"):
-                    if not seen_side_trail[side]:
-                        wrist_trails[side].clear()
-                        forearm_trails[side].clear()
-                for side, tw, tf, cw, cf in (
-                    ("left", wrist_trails["left"], forearm_trails["left"], _trail_wrist_left, _trail_fore_left),
-                    ("right", wrist_trails["right"], forearm_trails["right"], _trail_wrist_right, _trail_fore_right),
-                ):
-                    if len(tw) >= 2:
-                        _draw_fade_trail(frame, list(tw), cw, thickness=2)
-                    if len(tf) >= 2:
-                        _draw_fade_trail(frame, list(tf), cf, thickness=2)
-                for i, hlm in enumerate(hands_lm):
-                    cats = hands_h[i] if i < len(hands_h) else None
-                    hn = ((cats[0].category_name if cats and cats[0].category_name else "") or "").lower()
-                    side = "left" if "left" in hn else "right" if "right" in hn else None
-                    if side is None:
-                        continue
-                    (wx, wy), (tx, ty) = _forearm_axis_screen(
-                        hlm, w, h, extend_px=forearm_extend_px
-                    )
-                    fc = _trail_fore_left if side == "left" else _trail_fore_right
-                    cv2.line(frame, (wx, wy), (tx, ty), fc, 3, cv2.LINE_AA)
-                for hlm in hands_lm:
-                    drawing_utils.draw_landmarks(
-                        frame,
-                        _tasks_landmarks_to_proto_for_draw(hlm),
-                        _task_connections_to_tuples(hconn.HAND_CONNECTIONS),
-                        landmark_drawing_spec=hand_point_style,
-                        connection_drawing_spec=hand_line_style,
-                    )
                 raw_claw = _compute_raw_claw(
                     hands_lm,
                     hands_h,
@@ -2389,8 +2385,11 @@ def main() -> None:
                 *,
                 color_s: tuple[int, int, int],
                 angle_deg: float = 0.0,
+                pitch_deg: float = 0.0,
             ) -> None:
-                r = max(14, int(min(w, h) * 0.11))
+                pr = math.radians(float(pitch_deg))
+                depth = 1.0 + 0.2 * math.sin(pr)
+                r = max(14, int(min(w, h) * 0.11 * max(0.88, min(1.12, depth))))
                 cv2.circle(frame, (cx, cy), r, color_s, 2, cv2.LINE_AA)
                 ax_maj = max(5, int(r * 0.92))
                 ax_min = max(4, int(r * 0.48))
@@ -2423,13 +2422,19 @@ def main() -> None:
                 *,
                 color_cube: tuple[int, int, int],
                 angle_deg: float = 0.0,
+                size_scale: float = 1.0,
+                pitch_deg: float = 0.0,
             ) -> None:
-                # Cube is half the previous size (was 0.5 of min dimension).
-                side = int(min(w, h) * 0.25)
+                # Cube is half the previous size (was 0.5 of min dimension); size_scale from finger spread.
+                ss = max(0.4, min(1.75, float(size_scale)))
+                side = int(min(w, h) * 0.25 * ss)
+                side = max(14, min(side, int(min(w, h) * 0.48)))
                 half = side // 2
                 fx1, fy1 = cx - half, cy - half
                 fx2, fy2 = cx + half, cy + half
-                off = max(10, int(side * 0.18))
+                # Back-face offset + vertical skew: pitch reads as forward/back roll, not only depth.
+                pr = math.radians(float(pitch_deg))
+                off = max(10, int(side * 0.18 * (1.0 + 0.88 * math.sin(pr))))
                 bx1, by1 = fx1 - off, fy1 - off
                 bx2, by2 = fx2 - off, fy2 - off
 
@@ -2442,16 +2447,24 @@ def main() -> None:
                     ry = cy + dx * sr + dy * cr
                     return int(round(rx)), int(round(ry))
 
+                skew = int(round(side * 0.24 * math.sin(pr)))
+
+                def _skew_front_top(pt: tuple[int, int]) -> tuple[int, int]:
+                    return pt[0], pt[1] - skew
+
+                def _skew_front_bot(pt: tuple[int, int]) -> tuple[int, int]:
+                    return pt[0], pt[1] + skew
+
                 # Front face (near)
-                p0 = _rot(fx1, fy1)
-                p1 = _rot(fx2, fy1)
-                p2 = _rot(fx2, fy2)
-                p3 = _rot(fx1, fy2)
+                p0 = _skew_front_top(_rot(fx1, fy1))
+                p1 = _skew_front_top(_rot(fx2, fy1))
+                p2 = _skew_front_bot(_rot(fx2, fy2))
+                p3 = _skew_front_bot(_rot(fx1, fy2))
                 # Back face (offset)
-                q0 = _rot(bx1, by1)
-                q1 = _rot(bx2, by1)
-                q2 = _rot(bx2, by2)
-                q3 = _rot(bx1, by2)
+                q0 = _skew_front_top(_rot(bx1, by1))
+                q1 = _skew_front_top(_rot(bx2, by1))
+                q2 = _skew_front_bot(_rot(bx2, by2))
+                q3 = _skew_front_bot(_rot(bx1, by2))
 
                 thickness = 3
                 for a, b in ((p0, p1), (p1, p2), (p2, p3), (p3, p0)):
@@ -2558,6 +2571,10 @@ def main() -> None:
                         st["on"] = False
                         st["on_since"] = None
                         st["cube_angle"] = 0.0
+                        st["cube_angle_prev_raw"] = None
+                        st["cube_pitch_deg"] = 0.0
+                        st.pop("_cube_angle_delta_ema", None)
+                        st["cube_size_scale"] = 1.0
 
                     # Update center while the hand is visible. Open palm: anchor to palm pad;
                     # fist: bbox center. While cube is ON, always refresh last_ms so brief
@@ -2592,14 +2609,42 @@ def main() -> None:
                         st["center"] = raw_c
                         st["last_ms"] = now_ms
 
-                    # Palm: rotate cube wireframe to match hand orientation (shortest-path EMA).
+                    # Palm: continuous in-plane rotation (integrate deltas → full 360°+) + pitch depth.
                     if st["on"] and is_palm_lm:
                         raw_ang = _palm_hand_rotation_deg(lm)
-                        st["cube_angle"] = _smooth_angle_deg_shortest(
-                            float(st["cube_angle"]),
-                            raw_ang,
+                        prev_raw = st.get("cube_angle_prev_raw")
+                        if prev_raw is None:
+                            st["cube_angle"] = float(raw_ang)
+                            st["cube_angle_prev_raw"] = float(raw_ang)
+                        else:
+                            d = float(raw_ang) - float(prev_raw)
+                            if d > 180.0:
+                                d -= 360.0
+                            elif d < -180.0:
+                                d += 360.0
+                            prev_d = float(st.get("_cube_angle_delta_ema") or d)
+                            d_sm = (1.0 - _CUBE_ANGLE_UNWRAP_DELTA_EMA) * prev_d + _CUBE_ANGLE_UNWRAP_DELTA_EMA * d
+                            st["_cube_angle_delta_ema"] = d_sm
+                            st["cube_angle"] = float(st["cube_angle"]) + d_sm
+                            st["cube_angle_prev_raw"] = float(raw_ang)
+                        pitch_raw = _palm_pitch_deg(lm)
+                        st["cube_pitch_deg"] = _smooth_angle(
+                            st.get("cube_pitch_deg"),
+                            pitch_raw,
                             _CUBE_ANGLE_EMA_PALM,
                         )
+                    elif st["on"] and is_fist_lm:
+                        # Next open palm re-syncs in-plane angle (avoids huge delta after moving in fist).
+                        st["cube_angle_prev_raw"] = None
+
+                    if st["on"] and cube_finger_resize:
+                        spread = _finger_mean_tip_wrist_dist(lm)
+                        denom = _CUBE_SPREAD_HI - _CUBE_SPREAD_LO
+                        t = (spread - _CUBE_SPREAD_LO) / denom if denom > 1e-9 else 0.5
+                        t = max(0.0, min(1.0, t))
+                        target = _CUBE_SCALE_MIN + t * (_CUBE_SCALE_MAX - _CUBE_SCALE_MIN)
+                        prev = float(st.get("cube_size_scale") or 1.0)
+                        st["cube_size_scale"] = (1.0 - _CUBE_SIZE_EMA) * prev + _CUBE_SIZE_EMA * target
 
                     ss = sphere_state[side]
                     if not sphere_armed:
@@ -2607,6 +2652,9 @@ def main() -> None:
                         ss["p_on"] = 0
                         ss["s_off"] = 0
                         ss["sphere_angle"] = 0.0
+                        ss["sphere_angle_prev_raw"] = None
+                        ss["sphere_pitch_deg"] = 0.0
+                        ss.pop("_sphere_angle_delta_ema", None)
                     else:
                         ss["sphere_unseen_streak"] = 0
                         if not ss["on"]:
@@ -2627,6 +2675,9 @@ def main() -> None:
                         if ss["on"] and ss["s_off"] >= _SPHERE_OFF_FRAMES:
                             ss["on"] = False
                             ss["sphere_angle"] = 0.0
+                            ss["sphere_angle_prev_raw"] = None
+                            ss["sphere_pitch_deg"] = 0.0
+                            ss.pop("_sphere_angle_delta_ema", None)
                         if ss["on"]:
                             ss["last_ms"] = now_ms
                             if is_palm_lm:
@@ -2641,11 +2692,32 @@ def main() -> None:
                                         alpha=_CUBE_CENTER_EMA_PALM,
                                     )
                                 raw_sa = _palm_hand_rotation_deg(lm)
-                                ss["sphere_angle"] = _smooth_angle_deg_shortest(
-                                    float(ss["sphere_angle"]),
-                                    raw_sa,
+                                prev_s = ss.get("sphere_angle_prev_raw")
+                                if prev_s is None:
+                                    ss["sphere_angle"] = float(raw_sa)
+                                    ss["sphere_angle_prev_raw"] = float(raw_sa)
+                                else:
+                                    d = float(raw_sa) - float(prev_s)
+                                    if d > 180.0:
+                                        d -= 360.0
+                                    elif d < -180.0:
+                                        d += 360.0
+                                    prev_d = float(ss.get("_sphere_angle_delta_ema") or d)
+                                    d_sm = (
+                                        (1.0 - _CUBE_ANGLE_UNWRAP_DELTA_EMA) * prev_d
+                                        + _CUBE_ANGLE_UNWRAP_DELTA_EMA * d
+                                    )
+                                    ss["_sphere_angle_delta_ema"] = d_sm
+                                    ss["sphere_angle"] = float(ss["sphere_angle"]) + d_sm
+                                    ss["sphere_angle_prev_raw"] = float(raw_sa)
+                                pitch_s = _palm_pitch_deg(lm)
+                                ss["sphere_pitch_deg"] = _smooth_angle(
+                                    ss.get("sphere_pitch_deg"),
+                                    pitch_s,
                                     _CUBE_ANGLE_EMA_PALM,
                                 )
+                            elif is_fist_lm:
+                                ss["sphere_angle_prev_raw"] = None
 
             # If a side wasn't seen this frame, count it as non-fist (for turn-off),
             # but allow short dropouts while keeping the cube at last center.
@@ -2668,6 +2740,10 @@ def main() -> None:
                         st["on"] = False
                         st["on_since"] = None
                         st["cube_angle"] = 0.0
+                        st["cube_angle_prev_raw"] = None
+                        st["cube_pitch_deg"] = 0.0
+                        st.pop("_cube_angle_delta_ema", None)
+                        st["cube_size_scale"] = 1.0
 
             if sphere_armed:
                 for side in ("left", "right"):
@@ -2685,6 +2761,9 @@ def main() -> None:
                         if ss["on"] and ss["s_off"] >= _SPHERE_OFF_FRAMES:
                             ss["on"] = False
                             ss["sphere_angle"] = 0.0
+                            ss["sphere_angle_prev_raw"] = None
+                            ss["sphere_pitch_deg"] = 0.0
+                            ss.pop("_sphere_angle_delta_ema", None)
 
             # When no cube is visible/on, clear terminal states so the user can retry after releasing.
             any_cube_on = any(cube_state[s]["on"] for s in ("left", "right"))
@@ -2750,6 +2829,10 @@ def main() -> None:
                     cy,
                     color_cube=cube_color,
                     angle_deg=float(st.get("cube_angle") or 0.0),
+                    size_scale=float(st.get("cube_size_scale") or 1.0)
+                    if cube_finger_resize
+                    else 1.0,
+                    pitch_deg=float(st.get("cube_pitch_deg") or 0.0),
                 )
             for side in ("left", "right"):
                 ss = sphere_state[side]
@@ -2764,7 +2847,18 @@ def main() -> None:
                     sy,
                     color_s=sc,
                     angle_deg=float(ss.get("sphere_angle") or 0.0),
+                    pitch_deg=float(ss.get("sphere_pitch_deg") or 0.0),
                 )
+            # Draw hand skeletons last so wireframes stay visible on top of cube/sphere.
+            if hands_lm:
+                for hlm in hands_lm:
+                    drawing_utils.draw_landmarks(
+                        frame,
+                        _tasks_landmarks_to_proto_for_draw(hlm),
+                        _task_connections_to_tuples(hconn.HAND_CONNECTIONS),
+                        landmark_drawing_spec=hand_point_style,
+                        connection_drawing_spec=hand_line_style,
+                    )
             panel_bottom = _draw_hand_and_interaction_panels(
                 frame,
                 list(hand_overlay_log),
