@@ -43,6 +43,14 @@ class SubagentRequest(BaseModel):
     interactive: bool = False
 
 
+class SubagentFollowupRequest(BaseModel):
+    """Follow-up user turn: same interactive full OpenClaw job and container."""
+
+    task: str
+    context: str | None = None
+    timeout_seconds: int = 300
+
+
 class SubagentResponse(BaseModel):
     job_id: str
     status: str  # pending, running, completed, failed
@@ -90,10 +98,46 @@ def _tasks_volume_name() -> str | None:
     return os.environ.get("MASTERCLAW_TASKS_VOLUME")
 
 
-def _run_full_openclaw_job(job_id: str, cleanup: bool = True) -> None:
-    """Background: wait for sub-OpenClaw gateway, POST task, write output, optionally stop container."""
+def _gateway_auth_headers(deploy_path: Path) -> dict[str, str]:
+    headers = {"Content-Type": "application/json", "x-openclaw-agent-id": "main"}
+    env_file = deploy_path / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                if k.strip() == "OPENCLAW_GATEWAY_TOKEN" and v.strip():
+                    headers["Authorization"] = f"Bearer {v.strip()}"
+                    break
+    return headers
+
+
+def _wait_openclaw_gateway(gateway_url: str, timeout_seconds: int) -> bool:
+    for _ in range(min(120, max(1, timeout_seconds))):
+        try:
+            r = httpx.get(f"{gateway_url}/", timeout=2.0)
+            if r.status_code in (200, 404):
+                return True
+        except Exception:
+            pass
+        time.sleep(1)
+    return False
+
+
+def _post_openclaw_chat_turn(
+    job_id: str,
+    user_content: str,
+    *,
+    cleanup: bool,
+    timeout_seconds: int,
+) -> None:
+    """
+    Append one user turn to conversation.json, POST full message history to the sub-agent
+    gateway, persist assistant reply, write output.json. Optionally remove container.
+    """
     job_dir = TASKS_ROOT / job_id
     output_path = job_dir / "output.json"
+    conv_path = job_dir / "conversation.json"
     container_name = f"openclaw-subagent-{job_id}"
     deploy_path = _deploy_path()
     if not deploy_path or not Path(deploy_path).is_dir():
@@ -101,6 +145,88 @@ def _run_full_openclaw_job(job_id: str, cleanup: bool = True) -> None:
             json.dumps({"status": "failed", "error": "MASTERCLAW_DEPLOY_PATH not set or invalid"})
         )
         return
+
+    client = docker.from_env()
+    container = None
+    try:
+        container = client.containers.get(container_name)
+    except docker.errors.NotFound:
+        output_path.write_text(
+            json.dumps({"status": "failed", "error": "Sub-OpenClaw container not found"})
+        )
+        return
+
+    gateway_url = f"http://{container_name}:18789"
+    if not _wait_openclaw_gateway(gateway_url, timeout_seconds):
+        _write_and_cleanup(
+            container,
+            output_path,
+            "OpenClaw gateway did not become ready",
+            cleanup=cleanup,
+        )
+        return
+
+    messages: list[dict] = []
+    if conv_path.exists():
+        try:
+            raw = json.loads(conv_path.read_text())
+            if isinstance(raw, list):
+                messages = [
+                    m
+                    for m in raw
+                    if isinstance(m, dict) and m.get("role") and "content" in m
+                ]
+        except Exception:
+            messages = []
+
+    messages.append({"role": "user", "content": user_content})
+    headers = _gateway_auth_headers(Path(deploy_path))
+
+    try:
+        with httpx.Client(timeout=float(timeout_seconds)) as http:
+            r = http.post(
+                f"{gateway_url}/v1/chat/completions",
+                headers=headers,
+                json={
+                    "model": "openclaw",
+                    "messages": messages,
+                    "stream": False,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception as e:
+        _write_and_cleanup(container, output_path, str(e), cleanup=cleanup)
+        return
+
+    choices = data.get("choices", [])
+    text = choices[0].get("message", {}).get("content", "") if choices else ""
+    messages.append({"role": "assistant", "content": text})
+    try:
+        conv_path.write_text(json.dumps(messages, indent=2))
+    except Exception as e:
+        _write_and_cleanup(
+            container,
+            output_path,
+            f"Failed to save conversation: {e}",
+            cleanup=cleanup,
+        )
+        return
+
+    done = {"status": "completed", "result": {"output": text, "model": "openclaw"}}
+    output_path.write_text(json.dumps(done, indent=2))
+    if cleanup:
+        try:
+            container.stop(timeout=10)
+            container.remove()
+        except Exception:
+            pass
+
+
+def _run_full_openclaw_job(job_id: str, cleanup: bool = True) -> None:
+    """Background: gateway ready, POST task with full history, write output, optional cleanup."""
+    job_dir = TASKS_ROOT / job_id
+    output_path = job_dir / "output.json"
 
     try:
         payload = json.loads((job_dir / "input.json").read_text())
@@ -115,68 +241,20 @@ def _run_full_openclaw_job(job_id: str, cleanup: bool = True) -> None:
     if context:
         user_content = f"Context:\n{context}\n\nTask:\n{task}"
 
-    client = docker.from_env()
-    container = None
-    try:
-        container = client.containers.get(container_name)
-    except docker.errors.NotFound:
-        output_path.write_text(
-            json.dumps({"status": "failed", "error": "Sub-OpenClaw container not found"})
-        )
-        return
+    _post_openclaw_chat_turn(job_id, user_content, cleanup=cleanup, timeout_seconds=timeout_seconds)
 
-    gateway_url = f"http://{container_name}:18789"
-    for _ in range(min(120, timeout_seconds)):
-        try:
-            r = httpx.get(f"{gateway_url}/", timeout=2.0)
-            if r.status_code in (200, 404):
-                break
-        except Exception:
-            pass
-        time.sleep(1)
-    else:
-        _write_and_cleanup(container, output_path, "OpenClaw gateway did not become ready", cleanup=cleanup)
-        return
 
-    env_file = Path(deploy_path) / ".env"
-    headers = {"Content-Type": "application/json", "x-openclaw-agent-id": "main"}
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, _, v = line.partition("=")
-                if k.strip() == "OPENCLAW_GATEWAY_TOKEN" and v.strip():
-                    headers["Authorization"] = f"Bearer {v.strip()}"
-                    break
-
-    try:
-        with httpx.Client(timeout=float(timeout_seconds)) as http:
-            r = http.post(
-                f"{gateway_url}/v1/chat/completions",
-                headers=headers,
-                json={
-                    "model": "openclaw",
-                    "messages": [{"role": "user", "content": user_content}],
-                    "stream": False,
-                },
-            )
-            r.raise_for_status()
-            data = r.json()
-    except Exception as e:
-        _write_and_cleanup(container, output_path, str(e), cleanup=cleanup)
-        return
-
-    choices = data.get("choices", [])
-    text = choices[0].get("message", {}).get("content", "") if choices else ""
-    output_path.write_text(
-        json.dumps({"status": "completed", "result": {"output": text, "model": "openclaw"}}, indent=2)
-    )
-    if cleanup:
-        try:
-            container.stop(timeout=10)
-            container.remove()
-        except Exception:
-            pass
+def _run_followup_openclaw_job(
+    job_id: str,
+    task: str,
+    context: str | None,
+    timeout_seconds: int,
+) -> None:
+    """Background: same container, next user turn (interactive only)."""
+    user_content = task
+    if context:
+        user_content = f"Context:\n{context}\n\nTask:\n{task}"
+    _post_openclaw_chat_turn(job_id, user_content, cleanup=False, timeout_seconds=timeout_seconds)
 
 
 def _write_and_cleanup(container, output_path: Path, error: str, cleanup: bool = True) -> None:
@@ -195,7 +273,12 @@ def create_subagent(req: SubagentRequest):
     job_id = str(uuid.uuid4())
     job_dir = TASKS_ROOT / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
-    print(f"[MasterClaw] create_subagent job_id={job_id} use_full_openclaw={req.use_full_openclaw} interactive={req.interactive}", flush=True)
+    print(
+        "[MasterClaw] create_subagent "
+        f"job_id={job_id} use_full_openclaw={req.use_full_openclaw} "
+        f"interactive={req.interactive}",
+        flush=True,
+    )
 
     input_path = job_dir / "input.json"
     payload = {
@@ -256,7 +339,11 @@ def create_subagent(req: SubagentRequest):
                 environment=env_vars,
             )
             cleanup = not req.interactive
-            print(f"[MasterClaw] started openclaw container name={container_name}; cleanup={cleanup}", flush=True)
+            print(
+                "[MasterClaw] started openclaw "
+                f"container name={container_name}; cleanup={cleanup}",
+                flush=True,
+            )
             # Make job immediately visible as "running" for the TUI.
             (job_dir / "output.json").write_text(
                 json.dumps({"status": "running", "result": None, "error": None}, indent=2)
@@ -275,10 +362,15 @@ def create_subagent(req: SubagentRequest):
     else:
         # Lightweight worker (Ollama only)
         if req.use_full_openclaw and not deploy_path:
+            err = "Full OpenClaw requested but MASTERCLAW_DEPLOY_PATH not set"
             (job_dir / "output.json").write_text(
-                json.dumps({"status": "failed", "error": "Full OpenClaw requested but MASTERCLAW_DEPLOY_PATH not set"})
+                json.dumps({"status": "failed", "error": err}),
             )
-            return SubagentResponse(job_id=job_id, status="failed", error="MASTERCLAW_DEPLOY_PATH not set")
+            return SubagentResponse(
+                job_id=job_id,
+                status="failed",
+                error="MASTERCLAW_DEPLOY_PATH not set",
+            )
         ollama_host = os.environ.get("OLLAMA_HOST", "http://ollama:11434")
         try:
             client.containers.run(
@@ -302,6 +394,61 @@ def create_subagent(req: SubagentRequest):
             )
             return SubagentResponse(job_id=job_id, status="failed", error=str(e))
         return SubagentResponse(job_id=job_id, status="running", result=None)
+
+
+@app.post("/subagent/{job_id}/followup", response_model=SubagentResponse)
+def followup_subagent(job_id: str, req: SubagentFollowupRequest):
+    """
+    Send another user message to the same interactive full OpenClaw container.
+    Conversation history is stored in tasks/<job_id>/conversation.json so the gateway
+    receives the full messages[] array (multi-turn).
+    """
+    job_dir = TASKS_ROOT / job_id
+    if not job_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Job not found")
+    input_path = job_dir / "input.json"
+    if not input_path.exists():
+        raise HTTPException(status_code=404, detail="Job not found")
+    try:
+        inp = json.loads(input_path.read_text())
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid input.json: {e}") from e
+    if not inp.get("interactive"):
+        raise HTTPException(
+            status_code=400,
+            detail="Follow-up only applies to interactive full OpenClaw jobs",
+        )
+    output_path = job_dir / "output.json"
+    if output_path.exists():
+        try:
+            od = json.loads(output_path.read_text())
+            if od.get("status") == "running":
+                raise HTTPException(status_code=409, detail="Job is still processing")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    client = _get_docker_client()
+    container_name = f"openclaw-subagent-{job_id}"
+    try:
+        client.containers.get(container_name)
+    except docker.errors.NotFound:
+        raise HTTPException(
+            status_code=410,
+            detail="Sub-agent container no longer exists; start a new job",
+        ) from None
+
+    timeout_seconds = max(60, min(600, req.timeout_seconds))
+    output_path.write_text(
+        json.dumps({"status": "running", "result": None, "error": None}, indent=2)
+    )
+    threading.Thread(
+        target=_run_followup_openclaw_job,
+        args=(job_id, req.task, req.context, timeout_seconds),
+        daemon=True,
+    ).start()
+    return SubagentResponse(job_id=job_id, status="running", result=None)
 
 
 @app.get("/subagent/{job_id}", response_model=SubagentResponse)

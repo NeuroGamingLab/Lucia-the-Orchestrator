@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import random
 import re
+import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -414,6 +416,42 @@ def listen_once_transcript(timeout: float = 12.0, phrase_time_limit: float = 25.
         raise RuntimeError(f"Speech recognition service error: {e}") from e
 
 
+class TaskListenCancelledError(Exception):
+    """Multipart listen ended early (e.g. point gesture). ``partial_text`` is joined chunks or None."""
+
+    def __init__(self, partial_text: str | None = None) -> None:
+        self.partial_text = partial_text
+
+
+def listen_one_phrase_with_cancel(
+    r: Any,
+    source: Any,
+    *,
+    phrase_time_limit: float,
+    cancel_event: threading.Event | None,
+    max_wait: float,
+) -> Any | None:
+    """
+    One ``listen`` call, sliced so *cancel_event* can abort a long wait (e.g. OpenCV thread sets it).
+    Returns ``None`` if cancelled before any audio; raises ``WaitTimeoutError`` if *max_wait* elapses.
+    """
+    import speech_recognition as sr
+
+    slice_timeout = 0.75
+    deadline = time.monotonic() + max_wait
+    while time.monotonic() < deadline:
+        if cancel_event is not None and cancel_event.is_set():
+            return None
+        wait = min(slice_timeout, deadline - time.monotonic())
+        if wait <= 0:
+            break
+        try:
+            return r.listen(source, timeout=wait, phrase_time_limit=phrase_time_limit)
+        except sr.WaitTimeoutError:
+            continue
+    raise sr.WaitTimeoutError()
+
+
 def listen_task_instruction_multipart(
     *,
     console: Any | None = None,
@@ -424,6 +462,7 @@ def listen_task_instruction_multipart(
     phrase_limit_per_chunk: float = TASK_PHRASE_TIME_LIMIT,
     max_chunks: int = TASK_LISTEN_MAX_CHUNKS,
     max_attempts: int = TASK_LISTEN_MAX_ATTEMPTS,
+    cancel_event: threading.Event | None = None,
 ) -> str | None:
     """
     Capture task text across multiple utterances until the user says **done** (or a
@@ -433,6 +472,9 @@ def listen_task_instruction_multipart(
 
     Pass *emit* for plain-text lines (e.g. OpenCV overlay), or *console* for Rich
     (voice CLI). One of *emit* or *console* is required.
+
+    If *cancel_event* is set (e.g. point gesture in hand demo), listening stops and
+    :exc:`TaskListenCancelledError` is raised with any captured text in ``partial_text``.
     """
     import speech_recognition as sr
 
@@ -453,13 +495,30 @@ def listen_task_instruction_multipart(
     with sr.Microphone() as source:
         r.adjust_for_ambient_noise(source, duration=0.4)
         while attempts < max_attempts and len(chunks) < max_chunks:
+            if cancel_event is not None and cancel_event.is_set():
+                if chunks:
+                    raise TaskListenCancelledError(" ".join(chunks))
+                raise TaskListenCancelledError(None)
             attempts += 1
             try:
-                audio = r.listen(
-                    source,
-                    timeout=timeout_per_chunk,
-                    phrase_time_limit=phrase_limit_per_chunk,
-                )
+                if cancel_event is not None:
+                    audio = listen_one_phrase_with_cancel(
+                        r,
+                        source,
+                        phrase_time_limit=phrase_limit_per_chunk,
+                        cancel_event=cancel_event,
+                        max_wait=timeout_per_chunk,
+                    )
+                    if audio is None:
+                        if chunks:
+                            raise TaskListenCancelledError(" ".join(chunks))
+                        raise TaskListenCancelledError(None)
+                else:
+                    audio = r.listen(
+                        source,
+                        timeout=timeout_per_chunk,
+                        phrase_time_limit=phrase_limit_per_chunk,
+                    )
             except sr.WaitTimeoutError:
                 if chunks:
                     break

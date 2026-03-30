@@ -21,8 +21,22 @@ forearm-tip motion trails and a live forearm axis line (MCP cluster → wrist, e
 Cube hold → speech (multipart task capture, same idea as ``dave-it-guy voice`` full OpenClaw flow):
 
 * **Cube on:** **fist** (per hand, debounced) turns the cube on; open palm / fist while on unchanged.
+  For **full OpenClaw** jobs, ``DAVE_HAND_VOICE_OPENCLAW_INTERACTIVE=1`` (default) creates a
+  **persistent** sub-agent (``interactive: true``) and reuses it via ``POST /subagent/{id}/followup``
+  when ``DAVE_HAND_VOICE_OPENCLAW_REUSE=1`` (default). Session id is shared with triangle interactive.
+  After each turn completes, trigger state resets to **idle** so you can **hold the cube again**
+  without opening your hand. ``DAVE_HAND_VOICE_OPENCLAW_NEW_SESSION=1`` always starts a new job.
+  **Point gesture** (index extended, other fingers curled): after a short hold, stops TTS and
+  cancels multipart listen — ``DAVE_HAND_POINT_INTERRUPTS_VOICE=0`` to disable.
+  After each **interactive full OpenClaw** job completes, optional **next instruction** listen
+  (``DAVE_HAND_POST_JOB_LISTEN=1``, default) waits for result TTS to finish, then multipart capture; say
+  **terminate container** (or **stop the container** / **end session**) to clear the session id.
   Optional: ``DAVE_HAND_CUBE_REQUIRE_TRIANGLE=1`` — require a two-hand triangle pose first, then fist
   (face / expression never arms the cube).
+* **Triangle / sphere** (two-hand pinch → sphere + optional OpenClaw): **off by default**
+  (``DAVE_HAND_TRIANGLE_FEATURE=0``). Set ``DAVE_HAND_TRIANGLE_FEATURE=1`` to enable sphere mode and
+  ``DAVE_HAND_TRIANGLE_INTERACTIVE`` (default on when feature is on) POSTs to MasterClaw; see
+  ``DAVE_HAND_TRIANGLE_TASK``, ``DAVE_HAND_TRIANGLE_REUSE_SESSION``, ``DAVE_HAND_TRIANGLE_FOLLOWUP_TASK``.
 * ``DAVE_HAND_SIMPLE_LISTEN=1`` — one-shot listen instead of multipart (say done / segments).
 * ``DAVE_HAND_SPEAK=0`` — disable TTS prompts and job readout.
 * ``DAVE_HAND_SUMMARIZE_SPEECH=1`` — summarize long OpenClaw results for overlay + speech (Ollama).
@@ -198,6 +212,15 @@ _CUBE_TRIGGER_COOLDOWN_SECONDS = 4.0  # don't re-trigger immediately
 # held N frames, then a short window where fist can start the cube debounce.
 _CUBE_TRIANGLE_ON_FRAMES = 10
 _CUBE_TRIANGLE_ARM_SECONDS = 5.0
+# Two-hand triangle pinch → sphere + optional OpenClaw (gated by DAVE_HAND_TRIANGLE_FEATURE).
+_TRIANGLE_SPHERE_STREAK_FRAMES = 10
+_SPHERE_ARM_SECONDS = 120.0
+_SPHERE_PALM_ON_FRAMES = 5
+_SPHERE_OFF_FRAMES = 18
+_SPHERE_UNSEEN_GRACE_FRAMES = 15
+_INTERACTIVE_OC_COOLDOWN_SEC = 12.0
+# Index finger "point" held ~this many frames → stop TTS + cancel in-progress listen.
+_POINT_INTERRUPT_STREAK_FRAMES = 8
 # Poll MasterClaw for job result (same idea as masterclaw_tui.poll_until_done)
 _JOB_POLL_INTERVAL_SEC = 2.0
 _JOB_POLL_MAX_SEC = 600.0
@@ -284,6 +307,7 @@ def _safe_overlay_text(s: str) -> str:
         ("\u00a0", " "),
     ):
         s = s.replace(a, b)
+    s = s.replace("\u2192", "->").replace("\u2794", "->")
     return "".join(c if ord(c) < 128 else " " for c in s)
 
 # Informal single-hand gestures (angles in degrees at PIP: MCP–PIP–TIP chain)
@@ -800,6 +824,33 @@ def _two_hand_triangle_formation(left_lm: list, right_lm: list) -> bool:
     return True
 
 
+def _two_hand_triangle_pinch_pose(left_lm: list, right_lm: list) -> bool:
+    """
+    Diamond / prayer triangle: index fingertips together, thumb tips together, hands separated.
+    Matches the common two-hand pose used to arm sphere + interactive OpenClaw.
+    """
+    HL = hand_landmarker.HandLandmark
+    li = left_lm[HL.INDEX_FINGER_TIP]
+    ri = right_lm[HL.INDEX_FINGER_TIP]
+    lt = left_lm[HL.THUMB_TIP]
+    rt = right_lm[HL.THUMB_TIP]
+    d_idx = math.hypot(li.x - ri.x, li.y - ri.y)
+    d_th = math.hypot(lt.x - rt.x, lt.y - rt.y)
+    span = 0.5 * (_hand_span(left_lm) + _hand_span(right_lm))
+    if span < 0.018:
+        return False
+    if d_idx > 0.19 * span or d_th > 0.22 * span:
+        return False
+    d_wrist = _dist2_xy(left_lm[HL.WRIST], right_lm[HL.WRIST])
+    if not (0.11 <= d_wrist <= 0.58):
+        return False
+    # Middle finger roughly extended (fingers pointing up in the pose).
+    for lm in (left_lm, right_lm):
+        if _pip_angle(lm, HL.MIDDLE_FINGER_MCP, HL.MIDDLE_FINGER_PIP, HL.MIDDLE_FINGER_TIP) < 95.0:
+            return False
+    return True
+
+
 def _thumb_index_close(lm: list) -> bool:
     HL = hand_landmarker.HandLandmark
     span = _hand_span(lm)
@@ -1204,6 +1255,20 @@ def _append_job_result_to_overlay(
         log(_safe_overlay_text("… [truncated]"))
 
 
+def _hand_terminate_session_phrase(text: str) -> bool:
+    """User wants to end the interactive OpenClaw session (voice)."""
+    t = text.lower().strip()
+    if not t:
+        return False
+    if "terminate" in t and "container" in t:
+        return True
+    if "stop" in t and "container" in t:
+        return True
+    if "end" in t and "session" in t:
+        return True
+    return False
+
+
 def _poll_job_until_terminal(
     api: str,
     job_id: str,
@@ -1211,8 +1276,12 @@ def _poll_job_until_terminal(
     *,
     summarize_speech: bool = False,
     speak_results: bool = True,
-) -> None:
-    """GET /subagent/{id} until completed/failed or timeout."""
+) -> tuple[str, threading.Thread | None]:
+    """GET /subagent/{id} until completed/failed or timeout.
+
+    Returns ``(status, result_tts_thread)``. *result_tts_thread* is the thread that
+    speaks the job result (if any); join it before opening the mic for follow-up listen.
+    """
     import httpx  # type: ignore
 
     deadline = time.monotonic() + _JOB_POLL_MAX_SEC
@@ -1252,6 +1321,7 @@ def _poll_job_until_terminal(
         if st in ("completed", "failed"):
             log("--- output ---")
             tts_text = ""
+            result_tts_thread: threading.Thread | None = None
             try:
                 from dave_it_guy.voice_summarize import MIN_CHARS_TO_SUMMARIZE
                 from dave_it_guy.voice_tts import prepare_spoken_job_result
@@ -1286,14 +1356,28 @@ def _poll_job_until_terminal(
                     try:
                         from dave_it_guy.voice_tts import speak_hand_demo_output
 
-                        speak_hand_demo_output(utterance)
-                    except Exception:
-                        pass
+                        ok = speak_hand_demo_output(utterance)
+                        if not ok and utterance.strip():
+                            log(
+                                "TTS unavailable: install macOS `say`, or Linux "
+                                "`spd-say` / `espeak` (readout was skipped)."
+                            )
+                    except Exception as e:
+                        log(f"TTS error: {e}")
 
-                threading.Thread(target=_tts, args=(tts_text,), daemon=True).start()
-            return
+                result_tts_thread = threading.Thread(
+                    target=_tts, args=(tts_text,), daemon=True
+                )
+                result_tts_thread.start()
+            elif speak_results and not tts_text.strip() and st == "completed":
+                log(
+                    "TTS skipped: no speakable text from API result "
+                    "(check result shape; overlay may still show output)."
+                )
+            return st, result_tts_thread
         time.sleep(_JOB_POLL_INTERVAL_SEC)
     log(f"Timed out after {_JOB_POLL_MAX_SEC:.0f}s (check MasterClaw / option 3).")
+    return "timeout", None
 
 
 def main() -> None:
@@ -1359,16 +1443,25 @@ def main() -> None:
     except Exception:
         _api_hint = "http://localhost:8090"
     cube_require_triangle = _hand_env_bool("DAVE_HAND_CUBE_REQUIRE_TRIANGLE", False)
+    triangle_feature = _hand_env_bool("DAVE_HAND_TRIANGLE_FEATURE", False)
     if face_roi_filter:
         interaction_overlay_log.append(
             "Hand vs face: ROI filter on (DAVE_HAND_FACE_ROI_FILTER=0 disables extra face pass)"
         )
     interaction_overlay_log.append(f"MasterClaw: {_api_hint}")
-    interaction_overlay_log.append("Cube hold → voice → full OpenClaw job")
+    interaction_overlay_log.append("Cube hold -> voice -> full OpenClaw job")
     if cube_require_triangle:
         interaction_overlay_log.append("Cube: two-hand triangle → fist (DAVE_HAND_CUBE_REQUIRE_TRIANGLE=1)")
     else:
         interaction_overlay_log.append("Cube: fist on (triangle gate off; set DAVE_HAND_CUBE_REQUIRE_TRIANGLE=1 to enable)")
+    if triangle_feature:
+        interaction_overlay_log.append(
+            "Sphere/triangle: ON (DAVE_HAND_TRIANGLE_INTERACTIVE / DAVE_HAND_TRIANGLE_TASK)"
+        )
+    else:
+        interaction_overlay_log.append(
+            "Sphere/triangle: OFF (set DAVE_HAND_TRIANGLE_FEATURE=1 to enable)"
+        )
     try:
         import speech_recognition  # noqa: F401
         speech_ok = True
@@ -1377,6 +1470,11 @@ def main() -> None:
         interaction_overlay_log.append("Voice: pip install SpeechRecognition")
         interaction_overlay_log.append(f"(missing: {e})")
         interaction_overlay_log.append("Mac mic: brew install portaudio && pip install pyaudio")
+    if speech_ok:
+        interaction_overlay_log.append(
+            "Point (index finger): hold to stop speech / cancel listen "
+            "(DAVE_HAND_POINT_INTERRUPTS_VOICE=0 disables)"
+        )
     ts_ms = 0
     claw_hold_sec = 0.0
     prev_mono = time.monotonic()
@@ -1407,8 +1505,38 @@ def main() -> None:
             "cube_unseen_streak": 0,
         },
     }
+    sphere_state = {
+        "left": {
+            "on": False,
+            "p_on": 0,
+            "s_off": 0,
+            "center": None,
+            "last_ms": 0,
+            "sphere_angle": 0.0,
+            "_sphere_reset_smooth": False,
+            "sphere_unseen_streak": 0,
+        },
+        "right": {
+            "on": False,
+            "p_on": 0,
+            "s_off": 0,
+            "center": None,
+            "last_ms": 0,
+            "sphere_angle": 0.0,
+            "_sphere_reset_smooth": False,
+            "sphere_unseen_streak": 0,
+        },
+    }
     tri_streak = 0
     triangle_arm_until_mono = 0.0
+    tri_sphere_streak = 0
+    tri_oc_fired_this_hold = False
+    sphere_arm_until_mono = 0.0
+    last_interactive_oc_fire = 0.0
+    hand_interactive_oc_session: dict[str, str | None] = {"job_id": None}
+    hand_interactive_oc_lock = threading.Lock()
+    voice_point_cancel = threading.Event()
+    point_interrupt_streak = 0
     wrist_trails = {
         "left": collections.deque(maxlen=_WRIST_TRAIL_LEN),
         "right": collections.deque(maxlen=_WRIST_TRAIL_LEN),
@@ -1439,7 +1567,130 @@ def main() -> None:
             _logged_once_keys.add(key)
             interaction_overlay_log.append(_safe_overlay_text(msg))
 
+    def _trigger_interactive_openclaw_worker() -> None:
+        """POST interactive full OpenClaw; poll each turn like cube flow (Lucia stack pattern)."""
+        speak_enable = _hand_env_bool("DAVE_HAND_SPEAK", True)
+        summarize_speech = _hand_env_bool("DAVE_HAND_SUMMARIZE_SPEECH", False)
+
+        def _speak_triangle(msg: str) -> None:
+            if not speak_enable:
+                return
+
+            def _run() -> None:
+                try:
+                    from dave_it_guy.voice_tts import speak_hand_demo_output
+
+                    speak_hand_demo_output(msg)
+                except Exception:
+                    pass
+
+            threading.Thread(target=_run, daemon=True).start()
+
+        try:
+            import httpx  # type: ignore
+        except Exception as e:
+            _interaction_log(f"httpx missing: {e}")
+            return
+        api = os.environ.get("MASTERCLAW_URL", "http://localhost:8090").rstrip("/")
+        task = os.environ.get(
+            "DAVE_HAND_TRIANGLE_TASK",
+            "Interactive hand gesture session; follow user sphere control.",
+        )
+        followup_task = os.environ.get(
+            "DAVE_HAND_TRIANGLE_FOLLOWUP_TASK",
+            "Continue the interactive session in the same workspace; build on the prior turn.",
+        )
+        reuse = _hand_env_bool("DAVE_HAND_TRIANGLE_REUSE_SESSION", True)
+        force_new = _hand_env_bool("DAVE_HAND_TRIANGLE_NEW_SESSION", False)
+        with hand_interactive_oc_lock:
+            existing_jid = None if force_new else hand_interactive_oc_session["job_id"]
+
+        if reuse and existing_jid:
+            _interaction_log(
+                f"POST {api}/subagent/{existing_jid}/followup (same interactive container)"
+            )
+            try:
+                with httpx.Client(timeout=60.0) as client:
+                    resp = client.post(
+                        f"{api}/subagent/{existing_jid}/followup",
+                        json={
+                            "task": followup_task,
+                            "context": None,
+                            "timeout_seconds": 300,
+                        },
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    jid = data.get("job_id", existing_jid)
+                    _interaction_log(f"Interactive follow-up ok job_id={jid}")
+                    _speak_triangle("Continuing interactive OpenClaw in the same session.")
+                    _poll_job_until_terminal(
+                        api,
+                        str(jid),
+                        _interaction_log,
+                        summarize_speech=summarize_speech,
+                        speak_results=speak_enable,
+                    )
+                    return
+                if resp.status_code == 409:
+                    _interaction_log(
+                        "Interactive follow-up skipped: prior turn still running (try again)."
+                    )
+                    return
+                if resp.status_code in (404, 410):
+                    with hand_interactive_oc_lock:
+                        hand_interactive_oc_session["job_id"] = None
+                    _interaction_log(
+                        "Prior interactive session ended; starting a new full OpenClaw job."
+                    )
+                else:
+                    resp.raise_for_status()
+            except Exception as e:
+                _interaction_log(f"Interactive follow-up failed: {e}")
+                return
+
+        _interaction_log(
+            f"POST {api}/subagent interactive=true use_full_openclaw=true (is MasterClaw up?)"
+        )
+        try:
+            with httpx.Client(timeout=60.0) as client:
+                resp = client.post(
+                    f"{api}/subagent",
+                    json={
+                        "task": task,
+                        "context": None,
+                        "model": "llama3.2",
+                        "timeout_seconds": 300,
+                        "use_full_openclaw": True,
+                        "interactive": True,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            jid = data.get("job_id", "?")
+            _interaction_log(f"Interactive OpenClaw ok job_id={jid}")
+            if jid != "?":
+                with hand_interactive_oc_lock:
+                    hand_interactive_oc_session["job_id"] = str(jid)
+                _interaction_log_once(
+                    f"tri_attach_{jid}",
+                    f"Attach (same running container): docker exec -it openclaw-subagent-{jid} openclaw tui",
+                )
+            _speak_triangle("Interactive mode is on. Full OpenClaw job started.")
+            if jid != "?":
+                _poll_job_until_terminal(
+                    api,
+                    str(jid),
+                    _interaction_log,
+                    summarize_speech=summarize_speech,
+                    speak_results=speak_enable,
+                )
+        except Exception as e:
+            _interaction_log(f"Interactive OpenClaw failed: {e}")
+            _speak_triangle("Interactive OpenClaw could not start. Check the on-screen log.")
+
     def _trigger_worker() -> None:
+        voice_point_cancel.clear()
         speak_enable = _hand_env_bool("DAVE_HAND_SPEAK", True)
         summarize_speech = _hand_env_bool("DAVE_HAND_SUMMARIZE_SPEECH", False)
         allow_cleanup = _hand_env_bool("DAVE_HAND_ALLOW_CLEANUP", False)
@@ -1480,10 +1731,24 @@ def main() -> None:
             _speak_prompt("Listening. Speak your OpenClaw task.")
             r = sr.Recognizer()
             try:
+                from dave_it_guy.voice_assistant import listen_one_phrase_with_cancel
+
                 with sr.Microphone() as source:
                     r.pause_threshold = 1.1
                     r.energy_threshold = 300
-                    audio = r.listen(source, timeout=8.0, phrase_time_limit=40.0)
+                    audio = listen_one_phrase_with_cancel(
+                        r,
+                        source,
+                        phrase_time_limit=40.0,
+                        cancel_event=voice_point_cancel,
+                        max_wait=8.0,
+                    )
+                if audio is None:
+                    with trigger_lock:
+                        trigger_status["state"] = "idle"
+                        trigger_status["detail"] = ""
+                    _interaction_log("Listen cancelled (point gesture).")
+                    return
                 task = (r.recognize_google(audio) or "").strip()
             except Exception as e:
                 with trigger_lock:
@@ -1503,11 +1768,27 @@ def main() -> None:
                 "Describe what the full OpenClaw worker should do. Say done when finished."
             )
             try:
-                from dave_it_guy.voice_assistant import listen_task_instruction_multipart
+                from dave_it_guy.voice_assistant import (
+                    TaskListenCancelledError,
+                    listen_task_instruction_multipart,
+                )
 
                 task = listen_task_instruction_multipart(
                     emit=_interaction_log,
                     print_heard=True,
+                    cancel_event=voice_point_cancel,
+                )
+            except TaskListenCancelledError as e:
+                task = e.partial_text
+                if not (task and str(task).strip()):
+                    with trigger_lock:
+                        trigger_status["state"] = "idle"
+                        trigger_status["detail"] = ""
+                    _interaction_log("Listen cancelled (point gesture).")
+                    return
+                _interaction_log(
+                    f"Partial task after point interrupt: "
+                    f"{str(task)[:160]}{'…' if len(str(task)) > 160 else ''}"
                 )
             except RuntimeError as e:
                 with trigger_lock:
@@ -1564,6 +1845,8 @@ def main() -> None:
                 trigger_status["detail"] = "Cleanup…"
             try:
                 result = api_cleanup(api)
+                with hand_interactive_oc_lock:
+                    hand_interactive_oc_session["job_id"] = None
                 _interaction_log(f"Cleanup: {result}")
                 if speak_enable:
 
@@ -1627,70 +1910,319 @@ def main() -> None:
                 trigger_status["detail"] = "Listed jobs"
             return
 
-        use_full = True
-        task_submit = task_norm
-        if cmd.kind == "lightweight":
-            use_full = False
-            if cmd.task:
-                task_submit = cmd.task
-        elif cmd.kind == "full" and cmd.task:
-            task_submit = cmd.task
-        elif cmd.kind == "need_task_light":
-            use_full = False
-        elif cmd.kind == "need_task_full":
+        post_job_listen = _hand_env_bool("DAVE_HAND_POST_JOB_LISTEN", True)
+
+        while True:
             use_full = True
+            task_submit = task_norm
+            if cmd.kind == "lightweight":
+                use_full = False
+                if cmd.task:
+                    task_submit = cmd.task
+            elif cmd.kind == "full" and cmd.task:
+                task_submit = cmd.task
+            elif cmd.kind == "need_task_light":
+                use_full = False
+            elif cmd.kind == "need_task_full":
+                use_full = True
 
-        with trigger_lock:
-            trigger_status["state"] = "creating"
-            trigger_status["detail"] = f"Creating {'full OpenClaw' if use_full else 'lightweight'}…"
-        _interaction_log(
-            f"POST /subagent (use_full_openclaw={str(use_full).lower()})…"
-        )
+            voice_oc_interactive = use_full and _hand_env_bool(
+                "DAVE_HAND_VOICE_OPENCLAW_INTERACTIVE", True
+            )
+            voice_oc_reuse = _hand_env_bool("DAVE_HAND_VOICE_OPENCLAW_REUSE", True)
+            voice_oc_force_new = _hand_env_bool("DAVE_HAND_VOICE_OPENCLAW_NEW_SESSION", False)
 
-        payload = {
-            "task": task_submit,
-            "context": None,
-            "model": "llama3.2",
-            "timeout_seconds": 300,
-            "use_full_openclaw": use_full,
-            "interactive": False,
-        }
-        try:
-            with httpx.Client(timeout=60.0) as client:
-                resp = client.post(f"{api}/subagent", json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-        except Exception as e:
+            with hand_interactive_oc_lock:
+                if voice_oc_force_new:
+                    voice_existing = None
+                elif voice_oc_reuse:
+                    voice_existing = hand_interactive_oc_session["job_id"]
+                else:
+                    voice_existing = None
+
+            used_followup = False
+            jid: str | None = None
+
+            if voice_oc_interactive and voice_oc_reuse and voice_existing:
+                _interaction_log(
+                    f"POST {api}/subagent/{voice_existing}/followup "
+                    f"(voice, same interactive OpenClaw container)"
+                )
+                try:
+                    with httpx.Client(timeout=60.0) as client:
+                        resp = client.post(
+                            f"{api}/subagent/{voice_existing}/followup",
+                            json={
+                                "task": task_submit,
+                                "context": None,
+                                "timeout_seconds": 300,
+                            },
+                        )
+                    if resp.status_code == 200:
+                        body = resp.json()
+                        jid = str(body.get("job_id", voice_existing))
+                        used_followup = True
+                    elif resp.status_code == 409:
+                        with trigger_lock:
+                            trigger_status["state"] = "error"
+                            trigger_status["detail"] = "Prior turn still running"
+                        _interaction_log(
+                            "Voice follow-up skipped: prior turn still running. Try again shortly."
+                        )
+                        return
+                    elif resp.status_code in (404, 410):
+                        with hand_interactive_oc_lock:
+                            hand_interactive_oc_session["job_id"] = None
+                        _interaction_log(
+                            "Prior interactive session gone; creating a new full OpenClaw job."
+                        )
+                    else:
+                        resp.raise_for_status()
+                except Exception as e:
+                    with trigger_lock:
+                        trigger_status["state"] = "error"
+                        trigger_status["detail"] = f"Follow-up failed: {e}"
+                    _interaction_log(f"Voice follow-up failed: {e}")
+                    return
+
+            if not used_followup:
+                with trigger_lock:
+                    trigger_status["state"] = "creating"
+                    trigger_status["detail"] = (
+                        f"Creating {'full OpenClaw' if use_full else 'lightweight'}…"
+                    )
+                _interaction_log(
+                    f"POST /subagent (use_full_openclaw={str(use_full).lower()} "
+                    f"interactive={str(voice_oc_interactive).lower()})…"
+                )
+
+                payload = {
+                    "task": task_submit,
+                    "context": None,
+                    "model": "llama3.2",
+                    "timeout_seconds": 300,
+                    "use_full_openclaw": use_full,
+                    "interactive": voice_oc_interactive,
+                }
+                try:
+                    with httpx.Client(timeout=60.0) as client:
+                        resp = client.post(f"{api}/subagent", json=payload)
+                        resp.raise_for_status()
+                        create_body = resp.json()
+                except Exception as e:
+                    with trigger_lock:
+                        trigger_status["state"] = "error"
+                        trigger_status["detail"] = f"Create failed: {e}"
+                    _interaction_log(f"Create job failed: {e}")
+                    return
+
+                jid = create_body.get("job_id")
+                if not jid:
+                    with trigger_lock:
+                        trigger_status["state"] = "error"
+                        trigger_status["detail"] = "No job_id in response"
+                    _interaction_log("No job_id in create response.")
+                    return
+
+                if voice_oc_interactive and use_full:
+                    with hand_interactive_oc_lock:
+                        hand_interactive_oc_session["job_id"] = str(jid)
+                    _interaction_log_once(
+                        f"voice_attach_{jid}",
+                        f"Attach (same running container): docker exec -it "
+                        f"openclaw-subagent-{jid} openclaw tui",
+                    )
+
+            if jid is None:
+                with trigger_lock:
+                    trigger_status["state"] = "error"
+                    trigger_status["detail"] = "No job id after submit"
+                _interaction_log("Internal error: missing job id after submit.")
+                return
+
             with trigger_lock:
-                trigger_status["state"] = "error"
-                trigger_status["detail"] = f"Create failed: {e}"
-            _interaction_log(f"Create job failed: {e}")
-            return
+                trigger_status["state"] = "running"
+                trigger_status["detail"] = f"Job {str(jid)[:12]}…"
+            if not used_followup:
+                _interaction_log(f"Job created: {jid}")
+            else:
+                _interaction_log(f"Follow-up accepted for job: {jid}")
 
-        jid = data.get("job_id")
-        if not jid:
+            poll_st, job_result_tts_thread = _poll_job_until_terminal(
+                api,
+                str(jid),
+                _interaction_log,
+                summarize_speech=summarize_speech,
+                speak_results=speak_enable,
+            )
+
+            if poll_st == "timeout":
+                with trigger_lock:
+                    trigger_status["state"] = "error"
+                    trigger_status["detail"] = "Job timed out"
+                return
+            if poll_st == "failed":
+                with trigger_lock:
+                    trigger_status["state"] = "error"
+                    trigger_status["detail"] = "Job failed"
+                return
+
+            if not (
+                post_job_listen
+                and voice_oc_interactive
+                and use_full
+                and not simple_listen
+            ):
+                break
+
+            if job_result_tts_thread is not None:
+                job_result_tts_thread.join(timeout=600.0)
+
+            _interaction_log(
+                "Listening for next instruction... "
+                "(say done to finish, or say terminate container)"
+            )
+            _speak_prompt(
+                "Listening for next instruction. Say done when finished, "
+                "or say terminate container to end the session."
+            )
             with trigger_lock:
-                trigger_status["state"] = "error"
-                trigger_status["detail"] = "No job_id in response"
-            _interaction_log("No job_id in create response.")
-            return
+                trigger_status["state"] = "listening"
+                trigger_status["detail"] = "Next instruction..."
+
+            voice_point_cancel.clear()
+
+            try:
+                from dave_it_guy.voice_assistant import (
+                    TaskListenCancelledError,
+                    listen_task_instruction_multipart,
+                )
+
+                task_next = listen_task_instruction_multipart(
+                    emit=_interaction_log,
+                    print_heard=True,
+                    cancel_event=voice_point_cancel,
+                )
+            except TaskListenCancelledError as e:
+                task_next = e.partial_text
+                if not (task_next and str(task_next).strip()):
+                    with trigger_lock:
+                        trigger_status["state"] = "idle"
+                        trigger_status["detail"] = ""
+                    _interaction_log("Next instruction cancelled (point gesture).")
+                    break
+                _interaction_log(
+                    f"Partial next instruction after point: "
+                    f"{str(task_next)[:160]}{'...' if len(str(task_next)) > 160 else ''}"
+                )
+
+            if not task_next or not str(task_next).strip():
+                _interaction_log("No next instruction — ending follow-up loop.")
+                break
+
+            task_norm = normalize_task_instruction(task_next)
+            _interaction_log(
+                f"Next task text (combined): {task_norm[:200]}"
+                f"{'...' if len(task_norm) > 200 else ''}"
+            )
+
+            if _hand_terminate_session_phrase(task_norm):
+                with hand_interactive_oc_lock:
+                    hand_interactive_oc_session["job_id"] = None
+                _interaction_log("Interactive session ended (terminate container).")
+                _speak_prompt("Session ended.")
+                break
+
+            cmd = parse_voice_command(task_norm)
+
+            if cmd.kind == "cleanup":
+                if not allow_cleanup:
+                    with trigger_lock:
+                        trigger_status["state"] = "error"
+                        trigger_status["detail"] = "Cleanup disabled"
+                    _interaction_log("Cleanup skipped (set DAVE_HAND_ALLOW_CLEANUP=1).")
+                    _speak_prompt("Cleanup skipped. Set DAVE_HAND_ALLOW_CLEANUP to enable.")
+                    return
+                with trigger_lock:
+                    trigger_status["state"] = "creating"
+                    trigger_status["detail"] = "Cleanup…"
+                try:
+                    result = api_cleanup(api)
+                    with hand_interactive_oc_lock:
+                        hand_interactive_oc_session["job_id"] = None
+                    _interaction_log(f"Cleanup: {result}")
+                    if speak_enable:
+
+                        def _sp_cleanup2() -> None:
+                            try:
+                                from dave_it_guy.voice_tts import (
+                                    format_cleanup_for_tts,
+                                    speak_hand_demo_output,
+                                )
+
+                                speak_hand_demo_output(format_cleanup_for_tts(result))
+                            except Exception:
+                                pass
+
+                        threading.Thread(target=_sp_cleanup2, daemon=True).start()
+                except Exception as e:
+                    with trigger_lock:
+                        trigger_status["state"] = "error"
+                        trigger_status["detail"] = f"Cleanup failed: {e}"
+                    _interaction_log(f"Cleanup failed: {e}")
+                    _speak_prompt(f"Cleanup failed: {e}")
+                    return
+                with trigger_lock:
+                    trigger_status["state"] = "done"
+                    trigger_status["detail"] = "Cleanup finished"
+                return
+
+            if cmd.kind == "list":
+                with trigger_lock:
+                    trigger_status["state"] = "creating"
+                    trigger_status["detail"] = "Listing jobs…"
+                try:
+                    data = api_list_jobs(api)
+                    ids = data.get("job_ids", [])
+                    body = "\n".join(ids) if ids else "(no jobs)"
+                    for i in range(0, len(body), _JOB_OVERLAY_LINE_CHARS):
+                        _interaction_log(_safe_overlay_text(body[i : i + _JOB_OVERLAY_LINE_CHARS]))
+                    if speak_enable:
+
+                        def _sp_list2() -> None:
+                            try:
+                                from dave_it_guy.voice_tts import (
+                                    format_jobs_for_tts,
+                                    speak_hand_demo_output,
+                                )
+
+                                speak_hand_demo_output(format_jobs_for_tts(ids))
+                            except Exception:
+                                pass
+
+                        threading.Thread(target=_sp_list2, daemon=True).start()
+                except Exception as e:
+                    with trigger_lock:
+                        trigger_status["state"] = "error"
+                        trigger_status["detail"] = f"List failed: {e}"
+                    _interaction_log(f"List jobs failed: {e}")
+                    _speak_prompt(f"List jobs failed: {e}")
+                    return
+                with trigger_lock:
+                    trigger_status["state"] = "done"
+                    trigger_status["detail"] = "Listed jobs"
+                return
 
         with trigger_lock:
-            trigger_status["state"] = "running"
-            trigger_status["detail"] = f"Job {str(jid)[:12]}…"
-        _interaction_log(f"Job created: {jid}")
-
-        _poll_job_until_terminal(
-            api,
-            str(jid),
-            _interaction_log,
-            summarize_speech=summarize_speech,
-            speak_results=speak_enable,
-        )
-
-        with trigger_lock:
-            trigger_status["state"] = "done"
-            trigger_status["detail"] = "Job finished"
+            if voice_oc_interactive and use_full:
+                trigger_status["state"] = "idle"
+                trigger_status["detail"] = ""
+                trigger_status["last_fire_mono"] = (
+                    time.monotonic() - _CUBE_TRIGGER_COOLDOWN_SECONDS
+                )
+            else:
+                trigger_status["state"] = "done"
+                trigger_status["detail"] = "Job finished"
 
     try:
         while True:
@@ -1806,6 +2338,23 @@ def main() -> None:
                 hand_history.append("No hand")
                 hand_label = collections.Counter(hand_history).most_common(1)[0][0]
 
+            if hands_lm and _hand_env_bool("DAVE_HAND_POINT_INTERRUPTS_VOICE", True):
+                any_point = any(_is_point(lm) for lm in hands_lm)
+                if any_point:
+                    point_interrupt_streak += 1
+                else:
+                    point_interrupt_streak = 0
+                if point_interrupt_streak >= _POINT_INTERRUPT_STREAK_FRAMES:
+                    try:
+                        from dave_it_guy.voice_tts import stop_hand_demo_speech
+
+                        stop_hand_demo_speech()
+                    except Exception:
+                        pass
+                    voice_point_cancel.set()
+            else:
+                point_interrupt_streak = 0
+
             claw_progress_text = ""
             if hands_lm and raw_claw and claw_hold_sec < _CLAW_HOLD_SECONDS:
                 claw_progress_text = f"Claw hold: {claw_hold_sec:.1f} / {_CLAW_HOLD_SECONDS:.1f}s"
@@ -1833,6 +2382,40 @@ def main() -> None:
 
             color = (0, 255, 0) if label == "Smile" else (0, 165, 255) if label == "Sad" else (200, 200, 200)
             hand_color = _HAND_LABEL_BGR.get(hand_label, (180, 180, 180))
+
+            def _draw_sphere_at(
+                cx: int,
+                cy: int,
+                *,
+                color_s: tuple[int, int, int],
+                angle_deg: float = 0.0,
+            ) -> None:
+                r = max(14, int(min(w, h) * 0.11))
+                cv2.circle(frame, (cx, cy), r, color_s, 2, cv2.LINE_AA)
+                ax_maj = max(5, int(r * 0.92))
+                ax_min = max(4, int(r * 0.48))
+                cv2.ellipse(
+                    frame,
+                    (cx, cy),
+                    (ax_maj, ax_min),
+                    angle_deg,
+                    0,
+                    360,
+                    color_s,
+                    2,
+                    cv2.LINE_AA,
+                )
+                cv2.ellipse(
+                    frame,
+                    (cx, cy),
+                    (ax_min, ax_maj),
+                    angle_deg + 90.0,
+                    0,
+                    360,
+                    color_s,
+                    2,
+                    cv2.LINE_AA,
+                )
 
             def _draw_cube_at(
                 cx: int,
@@ -1881,18 +2464,19 @@ def main() -> None:
             # Debounced per-hand cube interaction (left and right independently).
             now_ms = int(time.time() * 1000)
             seen_side = {"left": False, "right": False}
-            left_lm_cube: list | None = None
-            right_lm_cube: list | None = None
-            if cube_require_triangle and hands_lm:
+            left_h: list | None = None
+            right_h: list | None = None
+            if hands_lm:
                 for i, lm in enumerate(hands_lm):
                     cats = hands_h[i] if i < len(hands_h) else None
                     hand_name = ((cats[0].category_name if cats and cats[0].category_name else "").lower())
-                    if "left" in hand_name and left_lm_cube is None:
-                        left_lm_cube = lm
-                    elif "right" in hand_name and right_lm_cube is None:
-                        right_lm_cube = lm
-                if left_lm_cube is not None and right_lm_cube is not None and _two_hand_triangle_formation(
-                    left_lm_cube, right_lm_cube
+                    if "left" in hand_name and left_h is None:
+                        left_h = lm
+                    elif "right" in hand_name and right_h is None:
+                        right_h = lm
+            if cube_require_triangle:
+                if left_h is not None and right_h is not None and _two_hand_triangle_formation(
+                    left_h, right_h
                 ):
                     tri_streak += 1
                 else:
@@ -1902,6 +2486,33 @@ def main() -> None:
                 fist_may_start_cube = now_mono < triangle_arm_until_mono
             else:
                 fist_may_start_cube = False
+
+            if triangle_feature:
+                tri_ok_sphere = False
+                if left_h is not None and right_h is not None:
+                    tri_ok_sphere = _two_hand_triangle_pinch_pose(left_h, right_h) or _two_hand_triangle_formation(
+                        left_h, right_h
+                    )
+                if tri_ok_sphere:
+                    tri_sphere_streak += 1
+                else:
+                    tri_sphere_streak = 0
+                    tri_oc_fired_this_hold = False
+                if tri_ok_sphere and tri_sphere_streak >= _TRIANGLE_SPHERE_STREAK_FRAMES:
+                    sphere_arm_until_mono = now_mono + _SPHERE_ARM_SECONDS
+                    if (
+                        not tri_oc_fired_this_hold
+                        and _hand_env_bool("DAVE_HAND_TRIANGLE_INTERACTIVE", True)
+                        and (now_mono - last_interactive_oc_fire >= _INTERACTIVE_OC_COOLDOWN_SEC)
+                    ):
+                        tri_oc_fired_this_hold = True
+                        last_interactive_oc_fire = now_mono
+                        threading.Thread(
+                            target=_trigger_interactive_openclaw_worker, daemon=True
+                        ).start()
+                sphere_armed = now_mono < sphere_arm_until_mono
+            else:
+                sphere_armed = False
 
             if hands_lm:
                 for i, lm in enumerate(hands_lm):
@@ -1990,6 +2601,52 @@ def main() -> None:
                             _CUBE_ANGLE_EMA_PALM,
                         )
 
+                    ss = sphere_state[side]
+                    if not sphere_armed:
+                        ss["on"] = False
+                        ss["p_on"] = 0
+                        ss["s_off"] = 0
+                        ss["sphere_angle"] = 0.0
+                    else:
+                        ss["sphere_unseen_streak"] = 0
+                        if not ss["on"]:
+                            if is_palm_lm:
+                                ss["p_on"] = int(ss.get("p_on") or 0) + 1
+                                ss["s_off"] = 0
+                            else:
+                                ss["p_on"] = 0
+                                ss["s_off"] = int(ss.get("s_off") or 0) + 1
+                        else:
+                            if is_palm_lm:
+                                ss["s_off"] = 0
+                            else:
+                                ss["s_off"] = int(ss.get("s_off") or 0) + 1
+                        if (not ss["on"]) and ss["p_on"] >= _SPHERE_PALM_ON_FRAMES:
+                            ss["on"] = True
+                            ss["_sphere_reset_smooth"] = True
+                        if ss["on"] and ss["s_off"] >= _SPHERE_OFF_FRAMES:
+                            ss["on"] = False
+                            ss["sphere_angle"] = 0.0
+                        if ss["on"]:
+                            ss["last_ms"] = now_ms
+                            if is_palm_lm:
+                                raw_s = _palm_center_screen_px(lm, w, h)
+                                if ss.get("_sphere_reset_smooth"):
+                                    ss["center"] = raw_s
+                                    ss["_sphere_reset_smooth"] = False
+                                else:
+                                    ss["center"] = _smooth_center_xy(
+                                        ss.get("center"),
+                                        raw_s,
+                                        alpha=_CUBE_CENTER_EMA_PALM,
+                                    )
+                                raw_sa = _palm_hand_rotation_deg(lm)
+                                ss["sphere_angle"] = _smooth_angle_deg_shortest(
+                                    float(ss["sphere_angle"]),
+                                    raw_sa,
+                                    _CUBE_ANGLE_EMA_PALM,
+                                )
+
             # If a side wasn't seen this frame, count it as non-fist (for turn-off),
             # but allow short dropouts while keeping the cube at last center.
             for side in ("left", "right"):
@@ -2011,6 +2668,23 @@ def main() -> None:
                         st["on"] = False
                         st["on_since"] = None
                         st["cube_angle"] = 0.0
+
+            if sphere_armed:
+                for side in ("left", "right"):
+                    ss = sphere_state[side]
+                    if not seen_side[side]:
+                        ss["sphere_unseen_streak"] = int(ss.get("sphere_unseen_streak") or 0) + 1
+                        ss["p_on"] = 0
+                        if (
+                            ss["on"]
+                            and ss["sphere_unseen_streak"] <= _SPHERE_UNSEEN_GRACE_FRAMES
+                        ):
+                            ss["last_ms"] = now_ms
+                        else:
+                            ss["s_off"] = int(ss.get("s_off") or 0) + 1
+                        if ss["on"] and ss["s_off"] >= _SPHERE_OFF_FRAMES:
+                            ss["on"] = False
+                            ss["sphere_angle"] = 0.0
 
             # When no cube is visible/on, clear terminal states so the user can retry after releasing.
             any_cube_on = any(cube_state[s]["on"] for s in ("left", "right"))
@@ -2076,6 +2750,20 @@ def main() -> None:
                     cy,
                     color_cube=cube_color,
                     angle_deg=float(st.get("cube_angle") or 0.0),
+                )
+            for side in ("left", "right"):
+                ss = sphere_state[side]
+                if not ss["on"] or ss.get("center") is None:
+                    continue
+                if now_ms - int(ss["last_ms"] or 0) > _CUBE_HOLD_MS_IF_LOST and not seen_side[side]:
+                    continue
+                sc = (0, 255, 140) if side == "left" else (0, 200, 255)
+                sx, sy = ss["center"]
+                _draw_sphere_at(
+                    sx,
+                    sy,
+                    color_s=sc,
+                    angle_deg=float(ss.get("sphere_angle") or 0.0),
                 )
             panel_bottom = _draw_hand_and_interaction_panels(
                 frame,
