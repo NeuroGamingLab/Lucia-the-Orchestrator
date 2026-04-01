@@ -39,8 +39,7 @@ Sample-Lucia-The-Master/
 .env
 .env.local
 
-# Ignore detail/doc variants
+# Ignore detail/doc variants (keep README.md tracked — required by pyproject.toml)
 README-detail.md
-README.md
 README-summary.md
 README-MasterClaw.md
