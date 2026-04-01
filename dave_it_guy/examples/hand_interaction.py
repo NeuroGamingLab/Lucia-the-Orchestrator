@@ -1,7 +1,9 @@
 """
 Webcam demo: face (eyes, nose, expression) + hands: CLAW (U-gap, thumb–index
 inward, or thumb–pinky inward), thumb up/down, and informal gestures
-(OK, Peace, Point, Shaka, Pinch, Fist, Open palm).
+(OK, Peace, Point, Shaka, Pinch, Ball cup, Fist, Open palm). **Ball cup** is a
+landmark heuristic for a one-hand cradle around a round ball (e.g. baseball / volleyball);
+it does **not** classify pixels of the object itself.
 
 Claw U is shown only after holding the pose continuously for _CLAW_HOLD_SECONDS
 (default 5s); until then the UI shows progress (Claw hold: x / 5.0s).
@@ -50,6 +52,10 @@ Cube hold → speech (multipart task capture, same idea as ``dave-it-guy voice``
 * ``DAVE_HAND_ALLOW_CLEANUP=1`` — allow **cleanup** / **clear list** (destructive) instead of a task.
 * ``DAVE_HAND_ML_CALIBRATION=1`` — unsupervised calibration of cube hold threshold from observed
   triggers; persists under ``~/.dave/hand_calibration.json``.
+* ``DAVE_HAND_LLAVA_BALL=1`` — after **Ball cup** is held ~12 frames, send a JPEG frame to **Ollama**
+  LLaVA (``OLLAMA_HOST``, ``DAVE_HAND_LLAVA_MODEL``, optional ``DAVE_HAND_LLAVA_PROMPT``). Requires
+  ``ollama pull llava`` (or another vision model). From Docker on Mac/Win, try
+  ``OLLAMA_HOST=http://host.docker.internal:11434`` if Ollama runs on the host.
 """
 
 from __future__ import annotations
@@ -238,6 +244,9 @@ _SPHERE_UNSEEN_GRACE_FRAMES = 15
 _INTERACTIVE_OC_COOLDOWN_SEC = 12.0
 # Index finger "point" held ~this many frames → stop TTS + cancel in-progress listen.
 _POINT_INTERRUPT_STREAK_FRAMES = 8
+# Ollama LLaVA (``DAVE_HAND_LLAVA_BALL=1``): ball-cup streak then POST frame to ``/api/chat``.
+_BALL_LLAVA_STREAK_FRAMES = 12
+_BALL_LLAVA_COOLDOWN_SEC = 55.0
 # Poll MasterClaw for job result (same idea as masterclaw_tui.poll_until_done)
 _JOB_POLL_INTERVAL_SEC = 2.0
 _JOB_POLL_MAX_SEC = 600.0
@@ -928,6 +937,56 @@ def _is_pinch_only(lm: list) -> bool:
     return True
 
 
+# Cupped grip for a round ball (baseball / volleyball–sized): partial finger curl, not fist/palm.
+_BALL_CUP_MIN_PIP = 48.0
+_BALL_CUP_MAX_PIP = 158.0
+_BALL_CUP_MIN_TIP_SPREAD_FRAC = 0.12
+_BALL_CUP_MAX_TIP_SPREAD_FRAC = 0.58
+_BALL_CUP_MIN_THUMB_WRIST_FRAC = 0.078
+
+
+def _is_ball_cup_gesture(lm: list) -> bool:
+    """
+    Heuristic \"holding a ball\" from landmarks only (not true object detection).
+    Matches a common one-hand cup around a sphere; may misfire on similar grasps.
+    """
+    if _is_fist(lm) or _is_open_palm(lm):
+        return False
+    if _claw_pose_any(lm):
+        return False
+    HL = hand_landmarker.HandLandmark
+    span = _hand_span(lm)
+    if span < 0.022:
+        return False
+    if _is_point(lm) or _is_peace(lm) or _is_ok_sign(lm) or _is_shaka(lm) or _is_pinch_only(lm):
+        return False
+    if _thumb_gesture(lm):
+        return False
+    bends: list[float] = []
+    for mcp, pip, tip in (
+        (HL.INDEX_FINGER_MCP, HL.INDEX_FINGER_PIP, HL.INDEX_FINGER_TIP),
+        (HL.MIDDLE_FINGER_MCP, HL.MIDDLE_FINGER_PIP, HL.MIDDLE_FINGER_TIP),
+        (HL.RING_FINGER_MCP, HL.RING_FINGER_PIP, HL.RING_FINGER_TIP),
+        (HL.PINKY_MCP, HL.PINKY_PIP, HL.PINKY_TIP),
+    ):
+        bends.append(_pip_angle(lm, mcp, pip, tip))
+    for ang in bends:
+        if ang < _BALL_CUP_MIN_PIP or ang > _BALL_CUP_MAX_PIP:
+            return False
+    if min(bends) > 128.0:
+        return False
+    it = lm[HL.INDEX_FINGER_TIP]
+    pt = lm[HL.PINKY_TIP]
+    tip_spread = _dist2_xy(it, pt) / span
+    if tip_spread < _BALL_CUP_MIN_TIP_SPREAD_FRAC or tip_spread > _BALL_CUP_MAX_TIP_SPREAD_FRAC:
+        return False
+    tt = lm[HL.THUMB_TIP]
+    wr = lm[HL.WRIST]
+    if _dist2_xy(tt, wr) / span < _BALL_CUP_MIN_THUMB_WRIST_FRAC:
+        return False
+    return True
+
+
 _GESTURE_PRIORITY: dict[str, int] = {
     "Thumb up": 0,
     "Thumb down": 1,
@@ -938,6 +997,7 @@ _GESTURE_PRIORITY: dict[str, int] = {
     "Pinch": 6,
     "Fist": 7,
     "Open palm": 8,
+    "Ball cup": 9,
 }
 
 # BGR for overlay
@@ -953,6 +1013,7 @@ _HAND_LABEL_BGR: dict[str, tuple[int, int, int]] = {
     "Pinch": (200, 200, 255),
     "Fist": (110, 110, 110),
     "Open palm": (140, 255, 140),
+    "Ball cup": (0, 165, 255),
 }
 
 
@@ -971,6 +1032,8 @@ def _single_hand_everyday_gesture(lm: list) -> str | None:
         return "Shaka"
     if _is_pinch_only(lm):
         return "Pinch"
+    if _is_ball_cup_gesture(lm):
+        return "Ball cup"
     if _is_fist(lm):
         return "Fist"
     if _is_open_palm(lm):
@@ -1516,6 +1579,9 @@ def main() -> None:
             "Point (index finger): hold to stop speech / cancel listen "
             "(DAVE_HAND_POINT_INTERRUPTS_VOICE=0 disables)"
         )
+    interaction_overlay_log.append(
+        "Ball cup: one-hand sphere grip heuristic (not baseball/volleyball pixel ID)"
+    )
     ts_ms = 0
     claw_hold_sec = 0.0
     prev_mono = time.monotonic()
@@ -1609,6 +1675,41 @@ def main() -> None:
                 return
             _logged_once_keys.add(key)
             interaction_overlay_log.append(_safe_overlay_text(msg))
+
+    llava_ball_enabled = _hand_env_bool("DAVE_HAND_LLAVA_BALL", False)
+    llava_ball_state: dict = {"streak": 0, "last_fire": -1e9, "busy": False}
+    if llava_ball_enabled:
+        _ollama_u = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+        _llava_m = os.environ.get("DAVE_HAND_LLAVA_MODEL", "llava")
+        interaction_overlay_log.append(
+            f"LLaVA ball ID: ON -> Ollama {_ollama_u} model {_llava_m} (ollama pull llava)"
+        )
+
+    def _llava_ball_worker(frame_bgr) -> None:
+        try:
+            from dave_it_guy.llava_vision import (
+                downscale_frame_max_dim,
+                frame_bgr_to_jpeg_b64,
+                ollama_vision_chat,
+            )
+
+            small = downscale_frame_max_dim(frame_bgr)
+            b64 = frame_bgr_to_jpeg_b64(small)
+            prompt = os.environ.get(
+                "DAVE_HAND_LLAVA_PROMPT",
+                "You see a person holding something in one hand. "
+                "What is it? Answer in one short phrase: e.g. baseball, volleyball, "
+                "tennis ball, or unknown. No markdown.",
+            )
+            out = ollama_vision_chat(prompt=prompt, image_b64=b64)
+            if out:
+                _interaction_log(f"LLaVA: {_safe_overlay_text(out[:900])}")
+            else:
+                _interaction_log("LLaVA: empty response")
+        except Exception as e:
+            _interaction_log(f"LLaVA: {_safe_overlay_text(str(e)[:400])}")
+        finally:
+            llava_ball_state["busy"] = False
 
     def _trigger_interactive_openclaw_worker() -> None:
         """POST interactive full OpenClaw; poll each turn like cube flow (Lucia stack pattern)."""
@@ -2350,6 +2451,21 @@ def main() -> None:
                     voice_point_cancel.set()
             else:
                 point_interrupt_streak = 0
+
+            if llava_ball_enabled:
+                if hands_lm and any(_is_ball_cup_gesture(lm) for lm in hands_lm):
+                    llava_ball_state["streak"] = int(llava_ball_state["streak"]) + 1
+                else:
+                    llava_ball_state["streak"] = 0
+                if (
+                    int(llava_ball_state["streak"]) >= _BALL_LLAVA_STREAK_FRAMES
+                    and not bool(llava_ball_state["busy"])
+                    and (now_mono - float(llava_ball_state["last_fire"])) >= _BALL_LLAVA_COOLDOWN_SEC
+                ):
+                    llava_ball_state["busy"] = True
+                    llava_ball_state["last_fire"] = now_mono
+                    llava_ball_state["streak"] = 0
+                    threading.Thread(target=_llava_ball_worker, args=(frame.copy(),), daemon=True).start()
 
             claw_progress_text = ""
             if hands_lm and raw_claw and claw_hold_sec < _CLAW_HOLD_SECONDS:
