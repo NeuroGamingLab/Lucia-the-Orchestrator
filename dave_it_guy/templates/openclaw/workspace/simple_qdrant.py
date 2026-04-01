@@ -8,8 +8,11 @@ Commands:
   upsert <coll> <text> [id]  – write a text into a collection (id optional, UUID if omitted)
   search <coll> <query> [limit]  – semantic search in a collection (limit default 10)
 
-Uses QDRANT_URL (primary) and QDRANT_FALLBACK_URL from env. Tries primary first, then fallback if primary is unreachable. Embeddings: sentence-transformers (all-MiniLM-L6-v2).
-Dave IT Guy deploy installs qdrant-client and sentence-transformers in the container; if missing, run:
+Uses QDRANT_URL (primary) and QDRANT_FALLBACK_URL from env. Tries primary first, then
+fallback if primary is unreachable. Embeddings: sentence-transformers (all-MiniLM-L6-v2).
+
+Dave IT Guy deploy installs qdrant-client and sentence-transformers in the container;
+if missing, run:
   pip install qdrant-client sentence-transformers
 Outputs JSON to stdout.
 """
@@ -21,7 +24,6 @@ import os
 import re
 import sys
 import uuid
-from typing import Optional
 
 # Security: restrict collection names to avoid injection / path issues
 COLLECTION_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$")
@@ -92,8 +94,8 @@ def _validate_collection(name: str) -> None:
         )
 
 
-def _point_id(raw: Optional[str]) -> str:
-    """Return a Qdrant-valid point ID (UUID string only; integers like 1 are rejected by some setups)."""
+def _point_id(raw: str | None) -> str:
+    """Return a Qdrant-valid point ID (UUID only; int ids like 1 may be rejected)."""
     if not raw:
         return str(uuid.uuid4())
     raw = raw.strip()
@@ -110,7 +112,7 @@ def cmd_list():
     return {"command": "list", "collections": names, "count": len(names)}
 
 
-def cmd_upsert(collection: str, text: str, point_id: Optional[str] = None):
+def cmd_upsert(collection: str, text: str, point_id: str | None = None):
     _validate_collection(collection)
     if len(text) > MAX_TEXT_LENGTH:
         raise ValueError(f"Text length exceeds maximum ({MAX_TEXT_LENGTH} chars)")
@@ -151,7 +153,8 @@ def cmd_search(collection: str, query: str, limit: int = 10):
 def main():
     if len(sys.argv) < 2:
         print(
-            "Usage: simple_qdrant.py list | upsert <coll> <text> [id] | search <coll> <query> [limit]",
+            "Usage: simple_qdrant.py list | upsert <coll> <text> [id] | "
+            "search <coll> <query> [limit]",
             file=sys.stderr,
         )
         sys.exit(1)

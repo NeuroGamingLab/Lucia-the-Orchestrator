@@ -114,7 +114,10 @@ def main():
             print(json.dumps(data))
             return
         if status == "failed":
-            print(json.dumps({"job_id": job_id, "status": "failed", "error": data.get("error", "unknown")}))
+            err = data.get("error", "unknown")
+            print(
+                json.dumps({"job_id": job_id, "status": "failed", "error": err})
+            )
             sys.exit(1)
 
         time.sleep(POLL_INTERVAL)

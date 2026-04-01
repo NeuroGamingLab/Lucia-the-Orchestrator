@@ -15,7 +15,8 @@ Outputs JSON to stdout:
     ]
   }
 
-Dave IT Guy deploy installs duckduckgo-search in the container; if missing, run: pip install duckduckgo-search
+Dave IT Guy deploy installs duckduckgo-search in the container; if missing, run:
+  pip install duckduckgo-search
 """
 
 import json

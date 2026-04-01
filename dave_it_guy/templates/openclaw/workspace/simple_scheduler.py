@@ -43,7 +43,13 @@ def append_log(path: str, record: dict) -> None:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def create_job(task: str, context: str, model: str, timeout_seconds: int, use_full_openclaw: bool) -> str:
+def create_job(
+    task: str,
+    context: str,
+    model: str,
+    timeout_seconds: int,
+    use_full_openclaw: bool,
+) -> str:
     payload = {
         "task": task,
         "context": context or None,

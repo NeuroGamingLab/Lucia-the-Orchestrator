@@ -153,7 +153,7 @@ def deploy_stack(name: str, template: dict[str, Any], options: dict[str, Any]) -
                 console.print("[dim]   Check status with: dave-it-guy status openclaw[/dim]")
                 console.print("[dim]   View logs with:   dave-it-guy logs openclaw[/dim]\n")
 
-            # Step 4a (openclaw only): Ensure openclaw container is actually running before skill install
+            # Step 4a (openclaw only): ensure OpenClaw is running before skill install
             if name == "openclaw":
                 task4a = progress.add_task("Ensuring OpenClaw is running...", total=None)
                 if _ensure_openclaw_running(deploy_path):
@@ -161,10 +161,13 @@ def deploy_stack(name: str, template: dict[str, Any], options: dict[str, Any]) -
                 else:
                     progress.update(
                         task4a,
-                        description="⚠️  OpenClaw may still be starting (check: dave-it-guy status openclaw)",
+                        description=(
+                            "⚠️  OpenClaw may still be starting "
+                            "(check: dave-it-guy status openclaw)"
+                        ),
                     )
 
-            # Step 4b: Install memory-qdrant skill for OpenClaw (so Qdrant conversation storage works)
+            # Step 4b: install memory-qdrant skill (Qdrant conversation storage)
             if name == "openclaw":
                 task4b = progress.add_task("Installing memory-qdrant skill...", total=None)
                 if _install_openclaw_memory_qdrant_skill():
@@ -172,7 +175,10 @@ def deploy_stack(name: str, template: dict[str, Any], options: dict[str, Any]) -
                 else:
                     progress.update(
                         task4b,
-                        description="⚠️  memory-qdrant install skipped or failed (run manually if needed)",
+                        description=(
+                            "⚠️  memory-qdrant install skipped or failed "
+                            "(run manually if needed)"
+                        ),
                     )
             # Step 5: Pre-pull models if requested
             models = options.get("models", [])
@@ -410,7 +416,10 @@ def _render_templates(name: str, deploy_path: Path, options: dict[str, Any]) -> 
 
 
 def _ensure_openclaw_running(deploy_path: Path) -> bool:
-    """Poll until openclaw container is running; optionally start it once. Returns True if running."""
+    """Poll until openclaw container is running; optionally start it once.
+
+    Returns True if running.
+    """
     container = "dave-it-guy-openclaw"
     poll_interval = 3
     first_wait = 90
@@ -449,7 +458,9 @@ def _install_openclaw_memory_qdrant_skill() -> bool:
     install_script = (
         f'test -d {skill_dir} && exit 0; '
         'mkdir -p /home/node/.openclaw/skills && '
-        'curl -sLf https://github.com/zuiho-kai/openclaw-memory-qdrant/archive/refs/heads/master.tar.gz | tar xz -C /tmp && '
+        'curl -sLf '
+        'https://github.com/zuiho-kai/openclaw-memory-qdrant/archive/refs/heads/master.tar.gz '
+        '| tar xz -C /tmp && '
         f'mv /tmp/openclaw-memory-qdrant-master {skill_dir} && exit 0 || exit 1'
     )
     time.sleep(5)
@@ -464,7 +475,10 @@ def _install_openclaw_memory_qdrant_skill() -> bool:
             if result.returncode == 0:
                 return True
             if result.stderr:
-                console.print(f"[dim]memory-qdrant install (attempt {attempt + 1}): {result.stderr.strip()[:200]}[/dim]")
+                msg = result.stderr.strip()[:200]
+                console.print(
+                    f"[dim]memory-qdrant install (attempt {attempt + 1}): {msg}[/dim]"
+                )
             if attempt < 2:
                 time.sleep(10)
         except subprocess.TimeoutExpired:
