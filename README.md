@@ -1,6 +1,8 @@
 # Lucia The Orchestrator
 
-**Deploy local AI stacks with one command** — Docker Compose templates for **OpenClaw**, **Ollama**, **Qdrant**, and a small **MasterClaw** orchestrator that can spawn worker containers via the Docker socket.
+**Lucia The Orchestrator — deploy OpenClaw with one command, or one hand gesture and voice.**
+
+Docker Compose templates for **OpenClaw**, **Ollama**, **Qdrant**, and **MasterClaw** (spawns worker containers via the Docker socket). CLI: **`dave-it-guy`**. Optional extras: **`[voice]`** for speech-driven control; **hand** / [`hand_interaction`](dave_it_guy/examples/hand_interaction.py) for camera gesture workflows.
 
 | | |
 |---|---|
@@ -13,17 +15,22 @@
 ## Quick start
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate   # or use .venv/bin/dave-it-guy without activating
-pip install -e ".[dev]"
-dave-it-guy doctor
-dave-it-guy deploy openclaw
+brew install python@3.11   # if needed
+cd /path/to/Lucia-the-Orchestrator
+/opt/homebrew/bin/python3.11 -m venv .venv   # or `python3.11 -m venv .venv` if on PATH
+source .venv/bin/activate
+python -m pip install -U pip
+pip install -e ".[dev,voice,hand]"
+dave-it-guy version
+dave-it-guy deploy openclaw --force
 ```
 
 - **OpenClaw UI:** `http://localhost:18789` (gateway port overridable with `--port`)
 - **Secrets & config** land under `~/.dave_it_guy/deployments/<stack>/` (see below)
 
 Optional: run the CLI from Docker — [`docker-compose.cli.yml`](docker-compose.cli.yml) + root [`Dockerfile`](Dockerfile) (mounts Docker socket + `~/.dave_it_guy`).
+
+**Voice & hand extras:** `pip install -e ".[dev,voice,hand]"` — **`[hand]` needs Python 3.10+** (MediaPipe pulls packages such as JAX that are not bytecode-compatible on 3.9). **`[voice]`** can stay on 3.9 with `brew install portaudio` on macOS for PyAudio. If install failed mid-way, recreate the venv with `python3.11 -m venv .venv` (or 3.10/3.12), upgrade pip, then reinstall.
 
 ---
 
