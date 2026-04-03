@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dave-it-guy"
-version = "0.2.10"
+version = "0.2.11"
 description = "Dave IT Guy — Deploy AI stacks with one command. OpenClaw, Ollama, Qdrant—fully containerized. Run locally or ship to the cloud. Same stack, anywhere."
 readme = "README.md"
 license = "MIT"
@@ -45,6 +45,7 @@ voice = ["SpeechRecognition>=3.10.0", "pyaudio>=0.2.14"]
 # Webcam + MediaPipe gesture demo (`dave_it_guy.examples.hand_interaction`). Includes SpeechRecognition for cube-hold → voice task.
 # Pin mediapipe: some newer wheels ship test *.py files that break under pip's compile step on Python 3.9 / certain macOS setups.
 # Mediapipe pulls in OpenCV (contrib); do not add opencv-python separately — avoids duplicate/conflicting cv2 packages.
+# Transitive deps (e.g. jax) require Python 3.10+ syntax — use Python 3.10+ for `[hand]`, not 3.9.
 hand = ["mediapipe==0.10.14", "SpeechRecognition>=3.10.0"]
 
 [project.scripts]
